@@ -103,3 +103,5 @@ Rules for work on this box:
 4. **Disk for a 1–3B model plus builds?** Yes — 1.7 TiB free; model (1.1 GB) is downloaded.
 5. **Toolchain present?** bpftrace/bpftool were; now gcc 15, clang 21, nvcc 12.4, cmake 4.2,
    ninja, git-lfs installed (author-approved) and llama.cpp 0.6.0-dev is built with CUDA.
+   **`bcc-tools` is still absent** (0 tools) — Phase 2 depends on BCC's `offcputime` and
+   `profile`; install it before Phase 2.

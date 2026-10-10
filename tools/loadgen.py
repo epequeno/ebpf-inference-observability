@@ -52,9 +52,9 @@ async def read_streaming_response(reader, timeout, sock_start):
     """
     first = None
     tokens = []
-    deadline = asyncio.get_event_loop().time() + timeout
+    deadline = asyncio.get_running_loop().time() + timeout
     while True:
-        remaining = deadline - asyncio.get_event_loop().time()
+        remaining = deadline - asyncio.get_running_loop().time()
         if remaining <= 0:
             raise TokenTimedOut(f"timed out after {timeout}s ({len(tokens)} tokens)")
         line = await asyncio.wait_for(reader.readline(), remaining)
@@ -73,7 +73,7 @@ async def read_streaming_response(reader, timeout, sock_start):
         piece = obj.get("content", "")
         if not piece:
             continue
-        now = asyncio.get_event_loop().time() - sock_start
+        now = asyncio.get_running_loop().time() - sock_start
         if first is None:
             first = now
         tokens.append(now)
@@ -89,7 +89,7 @@ async def one_request(args, idx):
         return {"index": idx, "error": f"connect: {exc!r}", "ok": False}
 
     body = json.dumps(make_payload(args.prompt, args.max_tokens)).encode()
-    sock_start = asyncio.get_event_loop().time()
+    sock_start = asyncio.get_running_loop().time()
     req = (
         b"POST " + args.path.encode() + b" HTTP/1.1\r\n"
         b"Host: " + args.host.encode() + b"\r\n"
@@ -100,7 +100,7 @@ async def one_request(args, idx):
     try:
         w.write(req + body)
         await w.drain()
-        sent_at = asyncio.get_event_loop().time() - sock_start
+        sent_at = asyncio.get_running_loop().time() - sock_start
         first, tokens = await read_streaming_response(r, args.timeout, sock_start)
         w.close()
         await w.wait_closed()

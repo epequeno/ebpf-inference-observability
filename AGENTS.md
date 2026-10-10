@@ -34,15 +34,18 @@ which were added later — read it if you need to know how stable a particular c
 
 ## Current status and next action
 
-**Phase 0a. No experiments have been run.** The immediate task is the host inventory:
+**Phase 0a is in progress.** The host inventory is done and committed (`inventory/report.md`,
+regenerate with `sudo ./tools/host-inventory.sh > inventory/report.md` — read-only, installs
+nothing). Its readiness verdict cleared the hard blockers: BTF present, kprobes attach and
+fire, `cuLaunchKernel` resolvable, NVIDIA RTX 4070 Ti SUPER with 16 GiB VRAM.
 
-```bash
-sudo ./tools/host-inventory.sh > inventory/report.md
-git add inventory/report.md && git commit -m "Add host inventory" && git push
-```
+llama.cpp 0.6.0-dev is built with CUDA and serving Qwen2.5-1.5B-Q4_K_M on the target host;
+`tools/loadgen.py` produces client-side TTFT/ITL ground truth. A `tcp_sendmsg` kprobe has
+already attached and fired over an 8-request stream (Phase 0a's probe-attach goal met).
 
-That report determines what is possible: BTF and kernel lockdown decide whether eBPF works at
-all; the GPU decides whether Phase 3 is available; the toolchain decides which phase can start.
+The next milestone is **Phase 1** (`docs/design.md`): per-connection TTFT/ITL from `tcp_sendmsg`
+timestamps, validated against that ground truth, with the probe's own overhead measured
+(attached vs detached) before any number is quoted.
 
 ## Rules
 

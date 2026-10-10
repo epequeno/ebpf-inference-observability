@@ -15,6 +15,54 @@ Rules:
 - If a hypothesis is refuted, say so plainly and update the status table in `hypotheses.md`.
 
 ---
+## 2026-10-09 — Doc/code cleanup from Mac (no probe work)
+
+- **Reviewed the repo from the authoring Mac** (cannot run probes here). Fixed four
+  inconsistencies found during review:
+  1. **AGENTS.md status was stale** — still said "Phase 0a, no experiments run" with the
+     inventory as the immediate task, contradicting README and this log. Updated to reflect
+     current state: inventory done, blockers cleared, server up, probe-attach goal met, next
+     milestone is Phase 1.
+  2. **`tools/host-inventory.sh` lockdown verdict was self-contradictory** — the `case` matched
+     the literal `[none]` against raw `/sys/kernel/security/lockdown` output like
+     `none [integrity] confidentiality`, so it never matched and fell through to "kprobes may be
+     blocked" as a hard claim, contradicting the empirical proof that kprobes fire. Now parses
+     the bracketed (active) token; the verdict for `integrity`/`confidentiality` says "may be
+     blocked (verify empirically)" — honest, consistent with the empirical-first ethos.
+  3. **`tools/host-inventory.sh` virtualisation row had a newline** — `systemd-detect-virt`
+     outputs `none` but exits non-zero, so `|| echo 'not systemd / unknown'` appended, breaking
+     the markdown table cell. Fixed to capture first, fallback on empty.
+  4. **`tools/loadgen.py` used deprecated `asyncio.get_event_loop()`** (5 sites) — replaced
+     with `asyncio.get_running_loop()`. No behavior change; removes the deprecation warning on
+     the host's Python 3.14.4.
+- **Flagged in `docs/environment.md`:** `bcc-tools` is still absent (0 tools), blocking
+  Phase 2's `offcputime`/`profile` BCC tools. Install before Phase 2.
+
+### Next steps on saturn
+
+1. **Regenerate the committed inventory** — `inventory/report.md` still has the old stale
+   output (lockdown verdict, pre-install toolchain, broken virtualisation row). The script is
+   fixed; re-run it:
+   ```bash
+   sudo ./tools/host-inventory.sh > inventory/report.md
+   git add inventory/report.md && git commit -m "Regenerate host inventory (fix lockdown verdict + virtualisation)" && git push
+   ```
+2. **Phase 1 — TTFT/ITL from `tcp_sendmsg`** (`docs/design.md` §Phase 1, tests H2). The
+   loadgen, server, and probe-attach are all working. Steps:
+   - Write a bpftrace script that kprobes `tcp_sendmsg` filtered to the `llama-server` PID,
+     timestamps each send per connection (using `args->sk` or socket address as the key), and
+     emits per-connection send-timestamp lists. **Aggregate in-kernel** — use a BPF map keyed
+     by socket, not per-event prints.
+   - Run `tools/loadgen.py` at concurrency 1, then 4, 16, 64 against the server with the probe
+     attached. Save bpftrace output alongside the loadgen JSONL.
+   - **Measure probe overhead** (design requirement): run the same loadgen sweep with the probe
+     detached, compare TTFT/ITL. Report the delta before quoting any probe-derived number.
+   - **Validate H2:** compare eBPF-derived TTFT/ITL against loadgen ground truth. Falsification
+     threshold: median absolute error > 10%, or correlation < 0.9. These are placeholders —
+     **set final tolerances in `docs/hypotheses.md` before the first measurement.**
+   - Log results in this file (newest at top). Update the H2 status in `docs/hypotheses.md`.
+3. **Set H2 tolerances** — the 10% / 0.9 numbers in `docs/hypotheses.md` are flagged as
+   placeholders in `docs/provenance.md`. Decide and record final values before Phase 1.3.
 
 ## 2026-10-10 — Host inventory + first probe attach (Phase 0a start)
 
