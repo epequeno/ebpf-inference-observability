@@ -15,6 +15,61 @@ Rules:
 - If a hypothesis is refuted, say so plainly and update the status table in `hypotheses.md`.
 
 ---
+
+## 2026-10-10 — Saturn session: inventory regenerated, ttft.bt first run — TTFT-definition finding
+
+- **Context:** first probe session on saturn (Linux 7.0.0-38-generic, NVIDIA driver 595.99.02,
+  llama.cpp 0.6.0-dev built with clang 21.1.8 + CUDA, bpftrace 0.25.0). Server restarted as a
+  session service (pid 8945, flags unchanged from 2026-10-09: `127.0.0.1:8080 -ngl 99 -c 4096
+  -np 4`, n_ctx_slot 1024, 4 slots; readiness regex `llama_server: listening` works). Page
+  caches NOT dropped (weights resident; H3/Phase 4 owns cache state). CUDA graphs: N/A —
+  llama.cpp decode path here, no graph capture involved.
+- **Runbook 1 done — inventory regenerated:** `sudo ./tools/host-inventory.sh >
+  inventory/report.md` (root run, collected 2026-10-10T12:07:04Z). The committed copy
+  predated the toolchain install and the script fixes; now current.
+- **Runbook 3 done — `ttft.bt` first-ever run** (C=1, 2 requests; repeated once after a probe
+  warning fix). Attaches cleanly, one `CONN` line per closed connection, exit histograms on
+  SIGINT. All four known risks from the tooling entry resolved:
+  1. `tcp_sendmsg` / `tcp_recvmsg` / `tcp_close` all exist (485 `tcp_*` kprobes total).
+  2. `delete()` prints "Return value discarded" in **both** spellings — cosmetic; original
+     spelling kept, `ttft.bt` header comment corrected. The int64/uint64 sign-mix warning on
+     `@bytes` was real noise and is fixed (`(int64)arg2` cast); re-smoked, identical `CONN`
+     structure. `bpftrace --dry-run` is a fast traffic-free compile check.
+  3. `tcp_close` fires in server context at C=1 — no orphaned map entries observed.
+  4. `pid` filter matches the whole server process.
+- **FINDING — probe TTFT (`t0 − r0`) measures the HTTP-header write, not the first token.**
+  llama-server emits 3 pre-token framing writes and one trailing `[DONE]` write (inferred by
+  count — nsends 68 = 3 + 64 tokens + 1; payload not read), so `t0` is a framing write that
+  precedes the first token by a variable gap. First validator run against real probe output:
+  pairing works (`abs_t0_s` ↔ `r0`, write→read deltas 0.02–0.16 ms, 4/4 pairs across both
+  smokes):
+  - **TTFT: median abs error 70%** (pairs: 96.3 / 70.5 / 18.3 / 69.5%). Definitional, not
+    noise. The Mac fixture missed it — the dummy SSE server sends no headers before the
+    first token.
+  - **ITL: median abs error 4.3%** (pairs: 11.6 / 4.3 / 3.7 / 4.3%), Pearson r 1.0 in both
+    smokes. The strong metric.
+  - The mean-ITL framing bias is **mixed-sign**, replacing the fixture's clean −11% model:
+    probe mean ITL = (header→token gap + token span + `[DONE]` gap) / (nsends−1), ground
+    truth = token span / (ntokens−1). Observed −4.3% when the header gap is ~3–4 ms, +11.6%
+    when it is ~35 ms; the sign flips around a ~12 ms header gap (64 tokens, ITL ≈ 2.9 ms).
+    The validator's per-pair sends/tokens ratio (1.062) keeps the framing visible.
+- **Surprise:** the header write itself is not prompt. `t0 − r0` was 1.34–1.41 ms on three
+  connections but **19.8 ms** on the first request after a few minutes idle (that request's
+  client TTFT was 24.2 ms, so the header still preceded the first token by only ~4 ms — the
+  TTFT error for that pair was coincidentally small, 18.3%). Mechanism unknown (slot
+  scheduling? GPU wake?); recorded as-is. Consequence: **no constant correction can turn
+  `t0 − r0` into first-token TTFT** — the gap is state-dependent (observed 3–35 ms).
+- **Consequence for H2 (blocks the sweep — author decision, runbook step 2):** as currently
+  worded, H2's TTFT clause would be refuted by llama.cpp's SSE framing, not by timing
+  quality. Options: (a) redefine the clause as time-to-first-byte, add `ttfb_s` to loadgen
+  ground truth, probe unchanged; (b) extend the `CONN` line with early-send timestamps
+  (t1..t3, last-but-one) so the validator locates the token boundary under the checkable
+  per-connection assumption `nsends == n_tokens + 4`; (c) keep as-is and record the limit of
+  external observation. Tolerances in `hypotheses.md` remain placeholders until this is
+  decided.
+- **State left behind:** server running (pid 8945). Next: author decision →
+  `sudo ./tools/phase1-sweep.sh` → validate → set H2 status.
+
 ## 2026-10-10 — Phase 1 tooling authored on the Mac (no probe work possible here)
 
 - **Context:** bpftrace does not exist on macOS, so nothing below has run against a real

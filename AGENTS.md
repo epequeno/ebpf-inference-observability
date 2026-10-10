@@ -35,21 +35,22 @@ which were added later — read it if you need to know how stable a particular c
 ## Current status and next action
 
 **Phase 0a is complete** (goals met: eBPF toolchain installed, llama.cpp serving on the
-GPU, loadgen ground truth, probe attach verified). Housekeeping pending: regenerate the
-committed `inventory/report.md` — it predates the toolchain install and the script fixes
-(`sudo ./tools/host-inventory.sh > inventory/report.md` — read-only, installs nothing).
+GPU, loadgen ground truth, probe attach verified). The committed `inventory/report.md` was
+regenerated on 2026-10-10 — the old copy predated the toolchain install and the script fixes.
 
 llama.cpp 0.6.0-dev is built with CUDA and serving Qwen2.5-1.5B-Q4_K_M on the target host;
-`tools/loadgen.py` produces client-side TTFT/ITL ground truth. A `tcp_sendmsg` kprobe has
-already attached and fired over an 8-request stream (Phase 0a's probe-attach goal met).
+`tools/loadgen.py` produces client-side TTFT/ITL ground truth. The server runs as a session
+service on the target host (restart with the flags in the 2026-10-09 results-log entry;
+readiness regex `llama_server: listening`).
 
 The next milestone is **Phase 1** (`docs/design.md`): per-connection TTFT/ITL from
 `tcp_sendmsg` timestamps, validated against that ground truth, with the probe's own
-overhead measured (attached vs detached) before any number is quoted. The tooling is
-authored — `tools/ttft.bt` (the probe), `tools/phase1-sweep.sh` (the sweep),
-`tools/phase1-validate.py` (H2 metrics + probe cost) — but **none of it has run**: bpftrace
-does not exist on macOS. First action on the target host: smoke `ttft.bt` at concurrency 1,
-then run the sweep. Runbook: top of `docs/results-log.md`.
+overhead measured (attached vs detached) before any number is quoted. `ttft.bt` has now
+run on the target host (smoke at C=1: `CONN` lines + exit histograms work) and the smoke
+exposed a definitional issue: the probe's TTFT (`t0 − r0`) measures the HTTP-header write,
+not the first token — see the 2026-10-10 results-log entry. **The sweep is blocked on an
+author decision:** finalize H2's TTFT clause and tolerances in `docs/hypotheses.md`, then
+run `sudo ./tools/phase1-sweep.sh`. Runbook: top of `docs/results-log.md`.
 
 ## Rules
 

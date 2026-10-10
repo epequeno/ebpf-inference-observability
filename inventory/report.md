@@ -1,6 +1,6 @@
 # Host inventory — saturn
 
-Collected: 2026-10-10T03:26:40Z  ·  via `/home/steven/code/ebpf-inference-observability/tools/host-inventory.sh`  ·  root: yes
+Collected: 2026-10-10T12:07:04Z  ·  via `/home/steven/code/ebpf-inference-observability/tools/host-inventory.sh`  ·  root: yes
 
 ## 1. OS and kernel
 
@@ -10,9 +10,8 @@ Collected: 2026-10-10T03:26:40Z  ·  via `/home/steven/code/ebpf-inference-obser
 | uname -r | 7.0.0-38-generic |
 | uname -m | x86_64 |
 | distro | Ubuntu 26.04.1 LTS |
-| uptime | up 1 minute |
-| virtualisation | none
-not systemd / unknown |
+| uptime | up 26 minutes |
+| virtualisation | none |
 | secure boot | SecureBoot enabled |
 > Bare metal or a VM matters: nested virtualisation can hide kernel features. Secure boot + kernel lockdown can block kprobes entirely.
 
@@ -21,7 +20,7 @@ not systemd / unknown |
 | field | value |
 |---|---|
 | BTF /sys/kernel/btf/vmlinux | yes (7067009 bytes) |
-| /proc/kallsyms symbols | 360063 |
+| /proc/kallsyms symbols | 360187 |
 | tcp_sendmsg in kallsyms | 1 |
 | tcp_recvmsg in kallsyms | 1 |
 | tracefs mounted | yes |
@@ -56,10 +55,10 @@ CONFIG_DEBUG_INFO_BTF=y
 | bpftrace | bpftrace v0.25.0 |
 | bpftool | bpftool v7.7.0 |
 | bcc-tools | 0 tools in /usr/share/bcc/tools |
-| clang | absent |
+| clang | Ubuntu clang version 21.1.8 (6ubuntu1) |
 | llvm-strip | absent |
 | libbpf | 1 |
-| gcc | absent |
+| gcc | gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0 |
 | go | absent |
 | rustc | absent |
 | python3 | Python 3.14.4 |
@@ -74,7 +73,7 @@ CONFIG_DEBUG_INFO_BTF=y
 | vendor | NVIDIA (nvidia-smi present) |
 
 ```
-Fri Oct  9 22:26:41 2026       
+Sat Oct 10 07:07:05 2026       
 +-----------------------------------------------------------------------------------------+
 | NVIDIA-SMI 595.99.02              Driver Version: 595.99.02      CUDA Version: 13.2     |
 +-----------------------------------------+------------------------+----------------------+
@@ -83,7 +82,7 @@ Fri Oct  9 22:26:41 2026
 |                                         |                        |               MIG M. |
 |=========================================+========================+======================|
 |   0  NVIDIA GeForce RTX 4070 ...    Off |   00000000:01:00.0  On |                  N/A |
-|  0%   35C    P8             16W /  285W |     262MiB /  16376MiB |     16%      Default |
+|  0%   36C    P2             41W /  285W |    1561MiB /  16376MiB |      2%      Default |
 |                                         |                        |                  N/A |
 +-----------------------------------------+------------------------+----------------------+
 
@@ -94,20 +93,22 @@ Fri Oct  9 22:26:41 2026
 Full query (name, memory, compute capability, driver, CUDA):
 ```
 index, name, memory.total [MiB], memory.used [MiB], compute_cap, driver_version, vbios_version
-0, NVIDIA GeForce RTX 4070 Ti SUPER, 16376 MiB, 262 MiB, 8.9, 595.99.02, 95.03.45.80.07
+0, NVIDIA GeForce RTX 4070 Ti SUPER, 16376 MiB, 1561 MiB, 8.9, 595.99.02, 95.03.45.80.07
 ```
 | field | value |
 |---|---|
 | GPU count | 1 |
 | max CUDA the driver supports | CUDA Version: 13.2 |
 | CUDA driver (nvidia-smi) | 595.99.02 |
-| CUDA runtime (nvcc) | nvcc absent |
+| CUDA runtime (nvcc) | release 12.4 |
 | cuLaunchKernel symbol | PRESENT in /usr/lib/x86_64-linux-gnu/libcuda.so.1 |
 
 libcuda / libcudart libraries found:
 ```
 	libnvidia-ml.so.1 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libnvidia-ml.so.1
 	libnvidia-ml.so (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libnvidia-ml.so
+	libcudart.so.12 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcudart.so.12
+	libcudart.so (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcudart.so
 	libcuda.so.1 (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcuda.so.1
 	libcuda.so (libc6,x86-64) => /usr/lib/x86_64-linux-gnu/libcuda.so
 ```
@@ -140,6 +141,8 @@ CUDA symbols central to Phase 3 (uprobe targets):
   cuMemFree
   cuMemFreeAsync
   cuMemFreeHost
+/usr/lib/x86_64-linux-gnu/libcudart.so:
+/usr/lib/x86_64-linux-gnu/libcudart.so.12:
 ```
 
 All graphics devices (lspci):
@@ -159,13 +162,13 @@ All graphics devices (lspci):
 | RAM avail | 27Gi |
 | swap | 8.0Gi |
 | hugepages | HugePages_Total:       0 |
-| free in $HOME | 1681 GiB |
-| free in /var/lib/docker | 1681 GiB |
+| free in $HOME | 1670 GiB |
+| free in /var/lib/docker | 1670 GiB |
 
 Filesystems (model storage matters):
 ```
 Filesystem      Size  Used Avail Use% Mounted on
-/dev/nvme0n1p2  1.8T   58G  1.7T   4% /
+/dev/nvme0n1p2  1.8T   69G  1.7T   4% /
 efivarfs        256K  131K  121K  53% /sys/firmware/efi/efivars
 /dev/nvme0n1p1  1.1G  6.4M  1.1G   1% /boot/efi
 ```
@@ -235,7 +238,7 @@ _not run — set `PROBE_IMAGE=<image already present locally>` to start one shor
 | ghcr.io | HTTP 401 |
 | nvcr.io | HTTP 401 |
 | docker hub | HTTP 401 |
-| listening ports | 0.0.0.0:17500 127.0.0.53%lo:53 127.0.0.1:631 127.0.0.1:17603 127.0.0.1:17600 127.0.0.1:42341 127.0.0.54:53 [::1]:631  |
+| listening ports | 127.0.0.1:8080 0.0.0.0:17500 127.0.0.1:631 127.0.0.54:53 127.0.0.1:17600 127.0.0.1:17603 127.0.0.1:36611 127.0.0.53%lo:53  |
 
 ## 9. Root-only checks
 
@@ -250,7 +253,7 @@ _not run — set `PROBE_IMAGE=<image already present locally>` to start one shor
 | field | value |
 |---|---|
 | eBPF usable (BTF + kprobe_events) | YES |
-| lockdown | none [integrity] confidentiality — **kprobes may be blocked** |
+| lockdown | none [integrity] confidentiality — kprobes **may** be blocked (verify empirically) |
 | bpftrace installed | yes |
 | GPU | NVIDIA GeForce RTX 4070 Ti SUPER (16376 MiB, compute 8.9) |
 | Phase 3 (CUDA uprobes) viable | yes — libcuda exports cuLaunchKernel |

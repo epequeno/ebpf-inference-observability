@@ -151,6 +151,6 @@ that is a refutation of H2, not a promising direction.
 | Hypothesis | Status | Blocked on |
 |---|---|---|
 | H1 | not started | Phase 3 start (Phase 0a + 0b complete) |
-| H2 | tooling authored (`tools/ttft.bt`), never run | author-set tolerances + Phase 1 sweep on the target host |
+| H2 | tooling smoked on saturn (2026-10-10); probe TTFT measures the header write, not the first token — definitional decision pending | author decision: TTFT clause + tolerances, then Phase 1 sweep |
 | H3 | not started | Phase 4 start (Phase 0a complete) |
 | H4 | not started | Phase 3.1 working |

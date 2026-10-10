@@ -33,8 +33,9 @@
  *   - @r0 (first read) approximates request arrival; the server may read a
  *     request in more than one syscall, so r0 is the *first* read.
  *
- * bpftrace 0.25 notes: lhist(v, min, max, step) takes FOUR args. If
- * delete(@m[k]) ever hard-errors, delete(@m, k) is the newer spelling.
+ * bpftrace 0.25 notes: lhist(v, min, max, step) takes FOUR args. delete() prints a
+ * cosmetic "Return value discarded" warning in BOTH spellings (delete(@m[k]) and
+ * delete(@m, k)) — verified empirically on saturn; ignore it.
  */
 
 // first read per socket ≈ request arrival
@@ -61,7 +62,7 @@ kprobe:tcp_sendmsg
 	}
 	@last[$sk] = nsecs;
 	@nsends[$sk] = @nsends[$sk] + 1;
-	@bytes[$sk] = @bytes[$sk] + (uint64)arg2;
+	@bytes[$sk] = @bytes[$sk] + (int64)arg2;
 }
 
 // one summary line per closed connection — request granularity
