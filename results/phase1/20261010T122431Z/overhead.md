@@ -51,3 +51,17 @@ ok: 64 -> 64  failed: 0 -> 0
 
 ok: 256 -> 256  failed: 0 -> 0
 
+
+## Scope of this overhead measurement (added 2026-10-10, per Craun et al. 2024)
+
+Craun et al., "Eliminating eBPF Tracing Overhead on Untraced Processes" (ACM SIGCOMM
+2024 Workshop on eBPF and Kernel Extensions) show that eBPF tracing overhead lands
+partly on *untraced* co-located processes. This run's attached-vs-detached deltas are
+measured on the server's latency as seen by the load generator — which is itself a
+co-located, untraced process on the same host. The deltas above therefore bound the
+*user-visible* cost, not the total system cost: part of the probe's cost may be
+absorbed by the very client that measures it. Calibration reference: ProfInfer
+(arXiv:2601.20755) measures 2.8–4% (BCC) / 1.7% (libbpf) decode-speed overhead for its
+fine-grained GGML uprobes; the probes used here (3 socket-function kprobes) measured
+within run noise at every concurrency — an order of magnitude lighter than even
+ProfInfer's libbpf mode.

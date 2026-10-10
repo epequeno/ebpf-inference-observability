@@ -21,3 +21,12 @@ control run detached. Summary metrics from loadgen ground truth.
   per-request metrics unchanged — the cost appeared between requests, not within them.
 - offcputime's own reports were lost to the report-path hang (see results-log):
   its measured cost above stands, but it produced no usable profile at this event rate.
+
+## Scope of this overhead measurement (added 2026-10-10, per Craun et al. 2024)
+
+Per Craun et al., "Eliminating eBPF Tracing Overhead on Untraced Processes" (SIGCOMM
+2024 eBPF workshop), tracing overhead lands partly on untraced co-located processes —
+here the loadgen client is one (same host). The table above bounds user-visible cost,
+not total system cost. The double-attachment row is the clearest local demonstration:
+its ~7x wall inflation appeared *between* requests while per-request metrics stayed
+flat.
