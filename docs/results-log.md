@@ -16,6 +16,29 @@ Rules:
 
 ---
 
+## 2026-10-10 — Host inventory + first probe attach (Phase 0a start)
+
+- **Ran `tools/host-inventory.sh` on the target host (saturn, Linux 7.0.0-38-generic,
+  Ubuntu 26.04.1 LTS, x86_64).** Report committed to `inventory/report.md` and pushed.
+  Read-only; nothing modified.
+- **Hard blockers cleared:**
+  - BTF present (`/sys/kernel/btf/vmlinux`, 7.1 MB) → bpftrace / CO-RE work.
+  - Secure boot is enabled but **lockdown is not blocking**: a `kprobe:tcp_sendmsg` and
+    `tracepoint:sched:sched_switch` bpftrace one-liner both attached and fired (7 `tcp_sendmsg`
+    hits during `curl https://huggingface.co`, 1409 `sched_switch`). Root, so
+    `perf_event_paranoid=4` / `unprivileged_bpf_disabled=2` do not matter.
+  - Tracepoints: 32 sched, 18 net, 16 kmem — Phases 1, 2, 4 are sized.
+- **Phase 3 viable:** NVIDIA GeForce RTX 4070 Ti SUPER, 16376 MiB VRAM, compute 8.9, driver
+  595.99.02 (CUDA 13.2); `cuLaunchKernel`, `cuLaunchKernelEx`, `cuMemAlloc*` all resolvable in
+  `libcuda.so` / `libcuda.so.1`. Fits ~6B FP16 / ~26B 4-bit before KV cache.
+- **Toolchain gap:** bpftrace 0.25.0 + bpftool 7.7.0 present, but **no clang, gcc, go or rustc**
+  → nothing can be compiled yet. `bcc-tools` absent (0 tools). Phase 0a package installs are
+  the next decision.
+- **No inference stack:** no llama.cpp / vLLM / torch, no model files on disk. 1.7 TiB free
+  disk; huggingface.co reachable (HTTP 200). CPU: i9-14900KF, 32 cores, 30 GiB RAM.
+- **Phase 0b note:** GPU-in-container probe not run (needs a local image via `PROBE_IMAGE`),
+  but nvidia-container-toolkit 1.20.1 present and the kernel module is loaded.
+
 ## 2026-10-09 — Target host decided; repo scaffolded
 
 - **Target host:** the physical Linux box on the LAN, full admin. Prior plan assumed rented
