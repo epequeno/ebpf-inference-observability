@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# host-inventory.sh — read-only host capability reconnaissance. Changes nothing,
-# installs nothing.
+# host-inventory.sh — read-only host capability reconnaissance. Installs nothing and
+# changes nothing (one opt-in exception: PROBE_IMAGE starts a short-lived container).
 #
 # Shared by two projects that run on the same host, so one run answers both:
 #   ebpf-inference-observability  — BTF, kprobes/uprobes, tracepoints, CUDA symbols
@@ -11,6 +11,8 @@
 #   ./tools/host-inventory.sh                    # print to stdout
 #   ./tools/host-inventory.sh > inventory/report.md
 #   sudo ./tools/host-inventory.sh               # adds the root-only checks
+#   PROBE_IMAGE=ubuntu:22.04 ./tools/host-inventory.sh   # also prove the GPU is visible in a
+#                                                        # container (image must be local; never pulled)
 #
 # Everything is best-effort: missing commands and unreadable files are reported,
 # never fatal. Safe to run on a box you care about.
@@ -22,9 +24,31 @@ SUDO=""
 [ "$(id -u)" -eq 0 ] && SUDO="yes"
 
 have() { command -v "$1" >/dev/null 2>&1; }
+tmo() { # run with a timeout where the platform has one
+  if have timeout; then timeout "$@"; else shift; "$@"; fi
+}
+# First line of a command's stdout. 'absent' if the command is missing. Do NOT write
+# `cmd | head -1 || echo absent` — the pipeline's status is head's, so the fallback never
+# fires and the cell renders empty.
+ver() {
+  have "$1" || { echo absent; return; }
+  local out; out=$("$@" 2>/dev/null | head -1)
+  echo "${out:-present (no version output)}"
+}
+http() { # reachability of a URL: any HTTP status counts (401 from a registry /v2/ means reachable)
+  have curl || { echo 'curl absent'; return; }
+  local c; c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$1" 2>/dev/null)
+  case "$c" in ''|000) echo unreachable ;; *) echo "HTTP $c" ;; esac
+}
 
-sec() { printf '\n## %s\n\n' "$1"; }
-kv()  { printf '| %s | %s |\n' "$1" "${2:-—}"; }
+# Each table gets its header lazily: sec() and any prose/code block reset it (intable=0),
+# so every run of kv rows renders as a Markdown table.
+intable=0
+sec() { intable=0; printf '\n## %s\n\n' "$1"; }
+kv()  {
+  if [ "$intable" -eq 0 ]; then printf '| field | value |\n|---|---|\n'; intable=1; fi
+  printf '| %s | %s |\n' "$1" "${2:-—}"
+}
 run() { # run a command, print its output indented, tolerate failure
   local out; out=$("$@" 2>&1) || true
   printf '```\n%s\n```\n' "${out:-<no output>}"
@@ -40,10 +64,7 @@ modstate() { # is a kernel module loaded? '?' where lsmod is unavailable (e.g. m
 
 printf '# Host inventory — %s\n\n' "$(hostname 2>/dev/null || echo unknown)"
 printf 'Collected: %s  ·  via `%s`  ·  root: %s\n' \
-  "$(date -Is 2>/dev/null)" "$0" "${SUDO:-no}"
-echo
-echo '| field | value |'
-echo '|---|---|'
+  "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" "$0" "${SUDO:-no}"
 
 # ---------------------------------------------------------------- 1. OS / kernel
 sec '1. OS and kernel'
@@ -60,10 +81,10 @@ echo '> Bare metal or a VM matters: nested virtualisation can hide kernel featur
 sec '2. eBPF prerequisites'
 kv 'BTF /sys/kernel/btf/vmlinux' "$(if [ -e /sys/kernel/btf/vmlinux ]; then echo "yes ($(wc -c </sys/kernel/btf/vmlinux) bytes)"; else echo '**NO — CO-RE and bpftrace will not work**'; fi)"
 kv '/proc/kallsyms symbols'      "$([ -r /proc/kallsyms ] && wc -l </proc/kallsyms || echo 'unreadable')"
-kv 'tcp_sendmsg in kallsyms'     "$(grep -c ' tcp_sendmsg$' /proc/kallsyms 2>/dev/null || echo 0)"
-kv 'tcp_recvmsg in kallsyms'     "$(grep -c ' tcp_recvmsg$' /proc/kallsyms 2>/dev/null || echo 0)"
+kv 'tcp_sendmsg in kallsyms'     "$(if [ -r /proc/kallsyms ]; then grep -c ' tcp_sendmsg$' /proc/kallsyms; else echo unreadable; fi)"
+kv 'tcp_recvmsg in kallsyms'     "$(if [ -r /proc/kallsyms ]; then grep -c ' tcp_recvmsg$' /proc/kallsyms; else echo unreadable; fi)"
 kv 'tracefs mounted'             "$([ -r /proc/mounts ] && grep -q tracefs /proc/mounts && echo yes || echo 'no')"
-kv 'tracefs mountable at /sys/kernel/tracing' "$([ -e /sys/kernel/tracing/kprobe_events ] && echo yes || echo no)"
+kv 'debugfs tracing (root only)' "$([ -e /sys/kernel/debug/tracing/kprobe_events ] && echo yes || echo 'no / not readable')"
 kv 'kprobe_events'               "$([ -e /sys/kernel/tracing/kprobe_events ] && echo yes || echo no)"
 kv 'uprobe_events'               "$([ -e /sys/kernel/tracing/uprobe_events ] && echo yes || echo no)"
 kv 'sched tracepoints'           "$(ls /sys/kernel/tracing/events/sched/ 2>/dev/null | wc -l)"
@@ -93,12 +114,12 @@ fi
 # ------------------------------------------------------------ 3. toolchain
 sec '3. eBPF toolchain'
 kv 'bpftrace'   "$(bpftrace --version 2>/dev/null || echo '**absent**')"
-kv 'bpftool'    "$(bpftool version 2>/dev/null | head -1 || echo absent)"
+kv 'bpftool'    "$(ver bpftool version)"
 kv 'bcc-tools'  "$(ls /usr/share/bcc/tools 2>/dev/null | wc -l) tools in /usr/share/bcc/tools"
-kv 'clang'      "$(clang --version 2>/dev/null | head -1 || echo absent)"
-kv 'llvm-strip' "$(llvm-strip --version 2>/dev/null | head -1 || echo absent)"
+kv 'clang'      "$(ver clang --version)"
+kv 'llvm-strip' "$(ver llvm-strip --version)"
 kv 'libbpf'     "$(ldconfig -p 2>/dev/null | grep -c libbpf)"
-kv 'gcc'        "$(gcc --version 2>/dev/null | head -1 || echo absent)"
+kv 'gcc'        "$(ver gcc --version)"
 kv 'go'         "$(go version 2>/dev/null || echo absent)"
 kv 'rustc'      "$(rustc --version 2>/dev/null || echo absent)"
 kv 'python3'    "$(python3 --version 2>/dev/null || echo absent)"
@@ -120,9 +141,16 @@ if have nvidia-smi; then
   nvidia-smi --query-gpu=index,name,memory.total,memory.used,compute_cap,driver_version,vbios_version \
              --format=csv 2>&1 | head -12
   echo '```'
-  kv 'CUDA driver (nvidia-smi)' "$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)"
-  kv 'CUDA runtime (nvcc)'     "$(nvcc --version 2>/dev/null | grep -o 'release [0-9.]*' || echo 'nvcc absent')"
-  kv 'cuLaunchKernel symbol'   "$(for p in $(ldconfig -p 2>/dev/null | awk '/libcuda\.so/{print $NF}'); do nm -D --defined-only "$p" 2>/dev/null | grep -qw cuLaunchKernel && echo "PRESENT in $p" && break; done | head -1)"
+  intable=0
+  kv 'GPU count'                    "$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')"
+  kv 'max CUDA the driver supports' "$(nvidia-smi 2>/dev/null | grep -o 'CUDA Version: [0-9.]*' | head -1)"
+  kv 'CUDA driver (nvidia-smi)'     "$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1)"
+  kv 'CUDA runtime (nvcc)'          "$(nvcc --version 2>/dev/null | grep -o 'release [0-9.]*' || echo 'nvcc absent')"
+  culk=""
+  for p in $(ldconfig -p 2>/dev/null | awk '/libcuda\.so/{print $NF}'); do
+    nm -D --defined-only "$p" 2>/dev/null | grep -qw cuLaunchKernel && culk="PRESENT in $p" && break
+  done
+  kv 'cuLaunchKernel symbol'   "${culk:-**not found**}"
 else
   kv 'vendor' 'no nvidia-smi'
 fi
@@ -161,6 +189,8 @@ kv 'RAM total'  "$(free -h 2>/dev/null | awk '/^Mem:/{print $2}' || echo '?')"
 kv 'RAM avail'  "$(free -h 2>/dev/null | awk '/^Mem:/{print $7}' || echo '?')"
 kv 'swap'       "$(free -h 2>/dev/null | awk '/^Swap:/{print $2}' || echo '?')"
 kv 'hugepages'  "$(grep -i HugePages_Total /proc/meminfo 2>/dev/null || echo '?')"
+kv 'free in $HOME'     "$(df -Pk "$HOME" 2>/dev/null | awk 'NR==2{printf "%.0f GiB", $4/1048576}')"
+kv 'free in /var/lib/docker' "$([ -d /var/lib/docker ] && df -Pk /var/lib/docker 2>/dev/null | awk 'NR==2{printf "%.0f GiB", $4/1048576}' || echo 'n/a (no /var/lib/docker or not readable)')"
 echo
 echo 'Filesystems (model storage matters):'
 echo '```'
@@ -169,24 +199,34 @@ echo '```'
 
 # ------------------------------------------------------- 6. inference stack
 sec '6. Existing inference stack'
-kv 'llama.cpp'      "$(ls -d ~/llama.cpp /opt/llama.cpp /usr/local/llama.cpp 2>/dev/null | head -1 || echo 'not found in usual places')"
+kv 'llama.cpp'      "$(d=$(ls -d ~/llama.cpp /opt/llama.cpp /usr/local/llama.cpp 2>/dev/null | head -1); echo "${d:-not found in usual places}")"
 kv 'llama-server'   "$(command -v llama-server || command -v llama-cli || echo absent)"
 kv 'vllm'           "$(python3 -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo absent)"
 kv 'torch'          "$(python3 -c 'import torch; print(torch.__version__, torch.cuda.is_available())' 2>/dev/null || echo absent)"
 kv 'transformers'   "$(python3 -c 'import transformers; print(transformers.__version__)' 2>/dev/null || echo absent)"
-kv 'huggingface cache' "$(du -sh ~/.cache/huggingface 2>/dev/null | cut -f1 || echo absent)"
+kv 'huggingface cache' "$(s=$(du -sh ~/.cache/huggingface 2>/dev/null | cut -f1); echo "${s:-absent}")"
 echo
-echo 'GGUF / model files already on disk (top 10 by size):'
+echo 'GGUF / safetensors files on disk (top 10 by size, KiB):'
 echo '```'
-find ~ /opt /srv -maxdepth 4 \( -name '*.gguf' -o -name '*.safetensors' \) 2>/dev/null | head -10 || echo '<none found>'
+found=$(find ~ /opt /srv -maxdepth 4 \( -name '*.gguf' -o -name '*.safetensors' \) -exec du -kL {} + 2>/dev/null | sort -rn | head -10)
+echo "${found:-<none found>}"
+echo '```'
+echo
+echo 'Hugging Face hub cache (too deep for the find above):'
+echo '```'
+hf="${HF_HOME:-$HOME/.cache/huggingface}/hub"
+hfm=$(ls -d "$hf"/models--* 2>/dev/null | sed 's|.*/models--||; s|--|/|g')
+echo "${hfm:-<none found in $hf>}"
 echo '```'
 
 # ------------------------------------- 7. Kubernetes / serving prerequisites
 sec '7. Kubernetes and serving prerequisites'
-# NB: `cmd | head -1 || echo absent` is wrong — the pipeline's status is head's, so the
-# fallback never fires and the row renders empty. Gate on `have` (or on the path) instead.
-ver() { have "$1" && "$@" 2>/dev/null | head -1 || echo absent; }
 kv 'container runtime' "$(docker --version 2>/dev/null || echo 'docker absent')"
+dock=no
+if have docker && tmo 10 docker info >/dev/null 2>&1; then dock=yes; fi
+kv 'docker daemon'     "$(if ! have docker; then echo 'docker absent'; elif [ "$dock" = yes ]; then echo reachable; else echo '**not reachable** (daemon down, or no permission — is the user in the docker group?)'; fi)"
+kv 'docker runtimes'   "$([ "$dock" = yes ] && tmo 10 docker info --format '{{range $k,$v := .Runtimes}}{{$k}} {{end}}(default: {{.DefaultRuntime}})' 2>/dev/null || echo 'n/a')"
+kv 'user in docker group' "$(if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then echo yes; else echo no; fi)"
 kv 'containerd'        "$(ver containerd --version)"
 kv 'podman'            "$(podman --version 2>/dev/null || echo absent)"
 kv 'kubectl'           "$(have kubectl && kubectl version --client 2>/dev/null | head -1 | sed 's/^[^:]*: *//' || echo absent)"
@@ -207,14 +247,38 @@ kv 'overlay'           "$(modstate overlay)  (k8s prerequisite)"
 kv 'iptables'          "$(iptables --version 2>/dev/null || echo absent)"
 kv 'firewall'          "$( (have ufw && ufw status 2>/dev/null | head -1) || (have firewall-cmd && firewall-cmd --state 2>/dev/null) || echo 'none detected')"
 kv 'k8s API port 6443' "$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ':6443' && echo 'listening' || echo 'not listening')"
+probe_state=none
+echo
+echo '**GPU-in-container probe** (opt-in):'
+if [ -z "${PROBE_IMAGE:-}" ]; then
+  echo '_not run — set `PROBE_IMAGE=<image already present locally>` to start one short-lived container and run `nvidia-smi -L` in it. The image is never pulled._'
+elif have docker || have podman; then
+  if have docker; then
+    probe_cmd=(docker run --rm --pull=never --gpus all)
+  else
+    probe_cmd=(podman run --rm --pull=never --device nvidia.com/gpu=all)
+  fi
+  probe_out=$(tmo 60 "${probe_cmd[@]}" "$PROBE_IMAGE" nvidia-smi -L 2>&1); probe_rc=$?
+  echo "\`${probe_cmd[*]} $PROBE_IMAGE nvidia-smi -L\` → exit $probe_rc"
+  echo '```'
+  echo "${probe_out:-<no output>}"
+  echo '```'
+  if [ "$probe_rc" -eq 0 ] && printf '%s\n' "$probe_out" | grep -q '^GPU '; then probe_state=pass; else probe_state=fail; fi
+else
+  echo '_no docker or podman — nothing to probe with._'
+fi
+intable=0
 echo '> L0 needs a container runtime plus a GPU the driver can see. L1 needs k3s + kubectl.'
 echo '> L5 needs terraform (or equivalent) plus a second node. Fargate cannot host the GPU node.'
 
 # ---------------------------------------------------------------- 8. network
 sec '8. Network'
 kv 'hostname -I' "$(hostname -I 2>/dev/null || echo '?')"
-kv 'default route' "$(ip route show default 2>/dev/null | head -1 || echo '?')"
-kv 'internet reachable' "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 https://huggingface.co 2>/dev/null || echo 'no (blocked? offline?)')"
+kv 'default route' "$(r=$(ip route show default 2>/dev/null | head -1); echo "${r:-? (no ip command or no default route)}")"
+kv 'huggingface.co'     "$(http https://huggingface.co)"
+kv 'ghcr.io'            "$(http https://ghcr.io/v2/)"
+kv 'nvcr.io'            "$(http https://nvcr.io/v2/)"
+kv 'docker hub'         "$(http https://registry-1.docker.io/v2/)"
 kv 'listening ports' "$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | awk 'NR>1{print $4}' | head -8 | tr '\n' ' ')"
 
 # ------------------------------------------------------------ 9. root-only
@@ -244,11 +308,10 @@ if have nvidia-smi; then
   vram=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
   cap=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1)
   kv 'GPU' "$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1) (${vram:-?} MiB, compute ${cap:-?})"
-  kv 'Phase 3 (CUDA uprobes) viable' "$([ -n "${vram:-}" ] && echo yes || echo 'unknown')"
-  if [ -n "${vram:-}" ] && [ "$vram" -ge 12000 ] 2>/dev/null; then
-    kv '1–3B model in VRAM' 'yes comfortably'
-  elif [ -n "${vram:-}" ]; then
-    kv '1–3B model in VRAM' "tight — ${vram} MiB; quantise (Q4/Q5) or use a smaller model"
+  kv 'Phase 3 (CUDA uprobes) viable' "$([ -n "${culk:-}" ] && echo 'yes — libcuda exports cuLaunchKernel' || echo '**no — cuLaunchKernel not found in libcuda**')"
+  if [ -n "${vram:-}" ] && [ "$vram" -gt 0 ] 2>/dev/null; then
+    fit=$(awk -v v="$vram" 'BEGIN { g = v/1024*0.8; printf "FP16 ~%.0fB · FP8/INT8 ~%.0fB · 4-bit ~%.0fB params", g/2, g, g*2 }')
+    kv 'largest weights that fit, per GPU' "$fit (80% of ${vram} MiB, before KV cache and activations — a ceiling, not a recommendation)"
   fi
 else
   kv 'GPU' 'none detected — Phase 3 needs an NVIDIA GPU; Phases 1/2/4 still work on CPU'
@@ -259,15 +322,19 @@ echo '**Serving-stack readiness** (full-stack-serving levels):'
 crt=no; { have docker || have containerd || have podman; } && crt=yes
 gpu=no; have nvidia-smi && gpu=yes
 ctk=no; have nvidia-ctk && ctk=yes
-kv 'L0 (container + engine)' "$( [ "$crt" = yes ] && echo ready || echo '**NO container runtime**' )"
+kv 'L0 (container + engine)' "$( if [ "$crt" = no ]; then echo '**NO container runtime**'; elif have docker && [ "$dock" = no ]; then echo '**docker present, daemon not reachable**'; elif [ "$gpu" = no ]; then echo 'runtime ok, but no NVIDIA GPU (CPU-only)'; else echo ready; fi )"
 kv 'L1 (k3s + kubectl)' "$( if have k3s && have kubectl; then echo ready; else echo "no — k3s:$(have k3s && echo yes || echo no) kubectl:$(have kubectl && echo yes || echo no)"; fi )"
 kv 'L2 (routing / Gateway API)' "$( if have kubectl && have helm; then echo 'helm present — installable'; else echo 'needs kubectl + helm'; fi )"
 kv 'L3 (autoscaling / KEDA)' "$( have helm && echo 'helm present — installable' || echo 'needs helm' )"
 kv 'L5 (cloud IaC)' "$( if have terraform || have tofu || have pulumi; then echo ready; else echo 'no IaC tool found'; fi )"
-if [ "$gpu" = yes ] && [ "$ctk" = no ]; then
+if [ "$probe_state" = pass ]; then
+  kv 'GPU in containers' '**verified** — the probe container saw the GPU'
+elif [ "$probe_state" = fail ]; then
+  kv 'GPU in containers' '**FAILED** — see probe output in section 7'
+elif [ "$gpu" = yes ] && [ "$ctk" = no ]; then
   kv 'GPU in containers' '**driver present, nvidia-container-toolkit missing — k8s will not see the GPU**'
 elif [ "$gpu" = yes ]; then
-  kv 'GPU in containers' 'driver + toolkit present'
+  kv 'GPU in containers' 'driver + toolkit present — NOT verified (re-run with PROBE_IMAGE=<local image>)'
 else
   kv 'GPU in containers' 'no NVIDIA GPU — L0 runs CPU-only; L5 needs a cloud GPU node'
 fi
