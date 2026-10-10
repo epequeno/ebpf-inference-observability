@@ -1,0 +1,10 @@
+date_utc:           2026-10-10T20:27:13Z
+kernel:             7.0.0-38-generic
+bpftrace:           bpftrace v0.25.0
+image:              vllm/vllm-openai:v0.23.0 (local; digest sha256:6d8429e38e37)
+cmd:                vllm serve Qwen/Qwen2.5-1.5B-Instruct --revision 989aa7980e4cf806f80c7fef2b1adb7bc71aa306 --dtype bfloat16 --max-model-len 4096 --gpu-memory-utilization 0.45
+container:          vllm-obs, port 8081:8000, HF_HUB_OFFLINE=1, hf-cache volume from full-stack-serving (weights local, no downloads)
+coexistence:        llama-server (build-off, pid 59687) stays up, IDLE — zero CUDA activity at idle proven by Phase 3 Run 0
+page_caches_dropped: yes for V2 cold start (sync + echo 3); V3/V4 warm unless stated
+thp:                always [madvise] never
+git:                c369d78-dirty

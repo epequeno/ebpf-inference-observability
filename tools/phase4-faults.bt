@@ -5,7 +5,9 @@
  * first-inference vs steady-state fault comparison. Attach BEFORE the server
  * starts; all aggregation stays in-kernel.
  *
- * Usage:  sudo bpftrace tools/phase4-faults.bt
+ * Usage:  sudo bpftrace tools/phase4-faults.bt <tgid> <comm>
+ *          (filter: pid == tgid OR comm == <comm>; args must be non-empty —
+ *          use NONE for the unused mode; see phase3-launches.bt header)
  *
  * Maps at exit (SIGINT):
  *   @faults             user page faults in the server process
@@ -28,21 +30,21 @@
 BEGIN { printf("attached - start the server; SIGINT prints the maps\n"); }
 
 tracepoint:exceptions:page_fault_user
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@faults = count();
 	@fault_per10ms[nsecs / 10000000] = count();
 }
 
 tracepoint:syscalls:sys_enter_mmap
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@mmap = count();
 	@mmap_len = lhist((uint64)args->len / 1048576, 0, 1100, 25);
 }
 
 tracepoint:syscalls:sys_enter_madvise
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@madvise[args->behavior] = count();
 }

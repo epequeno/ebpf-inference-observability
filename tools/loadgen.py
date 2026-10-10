@@ -42,18 +42,25 @@ def parse_args():
     p.add_argument("--timeout", type=float, default=120.0, help="per-request wall-clock timeout (s)")
     p.add_argument("--gap", type=float, default=0.0, help="if >0, request i starts i*gap seconds after t0 (bursty arrival pacing; H4)")
     p.add_argument("--out", required=True, help="JSONL file: one ground-truth record per request plus a summary")
+    p.add_argument("--api", choices=["llamacpp", "openai"], default="llamacpp",
+                   help="response dialect: llama.cpp /completion or OpenAI /v1/completions")
+    p.add_argument("--model", default=None,
+                   help="model id for --api openai payloads (e.g. Qwen/Qwen2.5-1.5B-Instruct)")
     return p.parse_args()
 
 
-def make_payload(prompt, max_tokens):
-    return {"prompt": prompt, "max_tokens": max_tokens, "stream": True}
+def make_payload(args, prompt, max_tokens):
+    payload = {"prompt": prompt, "max_tokens": max_tokens, "stream": True}
+    if args.api == "openai":
+        payload["model"] = args.model or "default"
+    return payload
 
 
 class TokenTimedOut(Exception):
     pass
 
 
-async def read_streaming_response(reader, timeout, sock_start):
+async def read_streaming_response(reader, timeout, sock_start, api):
     """Socket-level SSE reader. Returns (first_token, [token...], first_byte, done).
 
     Timestamps are monotonic seconds since sock_start. first_byte is the first
@@ -89,7 +96,10 @@ async def read_streaming_response(reader, timeout, sock_start):
             obj = json.loads(event)
         except json.JSONDecodeError:
             continue
-        piece = obj.get("content", "")
+        if api == "openai":
+            piece = (obj.get("choices") or [{}])[0].get("text", "")
+        else:
+            piece = obj.get("content", "")
         if not piece:
             continue
         if first is None:
@@ -108,7 +118,7 @@ async def one_request(args, idx):
     except (OSError, asyncio.TimeoutError) as exc:
         return {"index": idx, "error": f"connect: {exc!r}", "ok": False}
 
-    body = json.dumps(make_payload(args.prompt, args.max_tokens)).encode()
+    body = json.dumps(make_payload(args, args.prompt, args.max_tokens)).encode()
     sock_start = asyncio.get_running_loop().time()
     req = (
         b"POST " + args.path.encode() + b" HTTP/1.1\r\n"
@@ -121,7 +131,7 @@ async def one_request(args, idx):
         w.write(req + body)
         await w.drain()
         sent_at = asyncio.get_running_loop().time() - sock_start
-        first, tokens, first_byte, done = await read_streaming_response(r, args.timeout, sock_start)
+        first, tokens, first_byte, done = await read_streaming_response(r, args.timeout, sock_start, args.api)
         w.close()
         await w.wait_closed()
     except (OSError, asyncio.TimeoutError, TokenTimedOut) as exc:

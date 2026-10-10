@@ -16,6 +16,70 @@ Rules:
 
 ---
 
+## 2026-10-10 — vLLM introduced (cross-engine): H1 refutation holds cross-engine; graphs contrast 9× vs 566×; both engines hide KV at the API
+
+- **Context:** vLLM 0.23.0 (`vllm/vllm-openai` image, digest sha256:97492385…, already
+  local from the sibling repo), Qwen2.5-1.5B-Instruct bf16, pinned revision, weights from
+  the sibling's `hf-cache` docker volume (2.9 GB cached — zero downloads; `HF_HUB_OFFLINE=1`).
+  Own container `vllm-obs` on port 8081, `--gpu-memory-utilization 0.45`, coexisting with
+  the idle llama-server (its idle-CUDA-zero behavior, Phase 3 Run 0, makes coexistence a
+  measured non-confound). llama-server kept serving on 8080 throughout. Artifacts:
+  `results/vllm/20261010T202713Z/`.
+- **Tooling lessons (all in probe headers):** vLLM's CUDA threads are named
+  `python3`/`pt_*`, not the process title — comm filters catch nothing; the probes now
+  take `<tgid> <comm>` and MUST be given two non-empty args (an empty positional arg
+  misaligns bpftrace's arg indexing). Also: `wait` on a non-child pid returns instantly,
+  so kill-and-wait must poll for exit before parsing (a probe's exit-map dump races a
+  naive parser). The container's libcuda is the host driver bind-mounted — same inode, so
+  uprobes on the host path fire fine for container processes.
+- **V2 — H3's eager half (cold caches, fault census):** EngineCore fault census:
+  **498,152 user faults — 94.6% during startup** (weights eagerly read: 162,161 mmap
+  calls, zero madvise); post-startup RSS 2.26 GB. First request: 26,916 faults in 0.77 s
+  (+114 MB RSS, peak 8,520/10ms) — **steady state: 7 faults total**. So the eager engine
+  concentrates weight faults at load as predicted, but "first inference looks like steady
+  state" is false in the strict fault sense — the first-request residue is engine
+  machinery (lazy CUDA/sampling/detok pages), not weights. Together with Phase 4: **the
+  mmap-vs-eager fault distinction has collapsed across modern engines** — llama.cpp
+  prefaults by design and vLLM loads eagerly, and both put ~90–95% of faults at load.
+- **V3 — H1's second chance, on vLLM:**
+  - Graphs instance (default): **CUDA graphs are captured at STARTUP, not first
+    inference** (captures/instantiations = 0 in every serving window) — the opposite of
+    llama.cpp's first-request capture; explains the 27k first-request fault burst's
+    content being machinery. Decode step ≈ **1 graph replay + ~34 eager launches**
+    (sampling/KV ops live outside the graph); ~9 HtoD, ~3 DtoD and ~1 DtoH memcpy per
+    step.
+  - Eager instance (`--enforce-eager`): prefill = **656 launches per 600-token forward**
+    (~26 ms); decode = **~321 launches per step** (5.8 ms ITL). **The inter-arrival
+    distributions still overlap: prefill 81.1% < 20 µs vs decode 77.2% < 20 µs, medians
+    in the same bucket** — submission is CPU-bound in both phases even with ms-scale
+    prefill kernels; the stream queue absorbs them. **H1's falsification criterion 1
+    fires on the second engine too: the refutation is now cross-engine** (llama.cpp
+    graphs-off and vLLM eager, same GPU). What IS separable is step *structure* —
+    656-vs-321 kernels per step, 26-vs-5.8 ms steps, 25k-vs-55k launches/s phase rates —
+    but that is request-context knowledge, not the inter-arrival distribution H1
+    specified.
+  - **3.4 graphs on/off, cross-engine:** vLLM collapses the API surface ~9×
+    (321 → 35 calls/step) with **~0% ITL benefit** (5.8 → 5.9 ms — bf16 kernels are too
+    big for launch overhead to matter); llama.cpp collapses it 566× with ~12% ITL
+    benefit (tiny Q4 kernels are launch-bound). Same mechanism, opposite economics —
+    a clean externally-visible instance of "why CUDA graphs help small-kernel models."
+- **V4 — KV-cache visibility (4.3), cross-engine:** ZERO `cuMemAlloc*` during a
+  16×512-token C=16 run on vLLM (VRAM static, RSS +4 MB) — PagedAttention blocks come
+  from the startup pool, invisible at the API boundary, exactly like llama.cpp's static
+  pools. The visible cross-engine contrast is at **startup**: llama.cpp = 3 monolithic
+  allocs totaling 1.09 GiB; vLLM = **126 allocs totaling 7.72 GiB** with per-layer
+  clusters (28 × ~125 MiB, 28 × ~55 MiB, 50 × ~25 MiB). The design's "KV growth visible
+  in allocation patterns" is negative at the API level for both engines on this host;
+  block-table growth is host-side metadata.
+- **Probe cost:** ITL +0.0% attached vs control on vLLM eager (~55k uprobe events/s) —
+  the futex-slack/submitter-slack pattern holds on the second engine.
+- **Verdicts:** H1 refuted (cross-engine, recorded); H3's eager half measured (vLLM:
+  load-concentrated as predicted, first-request machinery residue noted); both engines
+  hide KV behind pre-allocated pools. **The experimental arc is complete: Phases 1–4
+  plus the vLLM cross-engine leg.** vLLM container stopped and removed after the runs
+  (image + volume remain; relaunch command in the artifacts' meta.txt). Next: Phase 5
+  (multi-tenant attribution, optional) or consolidation/write-up of the results arc.
+
 ## 2026-10-10 — Phase 4 (memory system): faults at LOAD, not first inference — H3 refuted; llama.cpp prefaults by design
 
 - **Context:** server binary build-off/ (graphs OFF) for all runs; two serving configs:

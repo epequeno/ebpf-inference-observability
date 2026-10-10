@@ -76,10 +76,19 @@ confirmed.** The refutations share one root: llama.cpp 0.6.0-dev has already
 engineered away the asymmetries H1/H3 expected to observe (graph replay collapses the
 launch stream; prefault collapses the fault timing). What survives is the external
 observability itself: TTFB/ITL from sockets, the futex-metronome CPU side, step cadence
-and batch amortization. Next: vLLM introduction (tests H3's eager-loading half, H1's
-graphs prediction via `--enforce-eager`, and the design's cross-engine comparisons —
-install is an author call) or Phase 5 (multi-tenant, optional). Runbook: top of
-`docs/results-log.md`.
+and batch amortization. **vLLM has also been introduced** (2026-10-10,
+`results/vllm/20261010T202713Z/`): own container from the local vllm-openai image +
+the sibling repo's HF cache volume (zero downloads), coexisting with the idle
+llama-server. Findings: H1's refutation holds cross-engine (vLLM eager inter-arrival
+distributions overlap too); vLLM captures CUDA graphs at startup (llama.cpp at first
+request); the graphs collapse is 9×/~0% ITL on vLLM bf16 vs 566×/~12% on llama.cpp Q4;
+both engines hide KV behind startup pools (vLLM: 126 startup allocs / 7.72 GiB vs
+llama.cpp's 3 / 1.09 GiB — the visible cross-engine contrast); H3's eager half measured
+— faults load-concentrated on both engines. The vllm-obs container was stopped and
+removed after the runs (image + volume remain; relaunch command in the artifacts'
+meta.txt). **The experimental arc (Phases 1–4 + cross-engine) is complete.** Next:
+Phase 5 (multi-tenant attribution, optional stretch) or consolidation/write-up.
+Runbook: top of `docs/results-log.md`.
 
 ## Rules
 

@@ -5,7 +5,9 @@
  * KV cache grab their headroom. Attach BEFORE the server starts; the model
  * load is the event of interest. All aggregation in-kernel.
  *
- * Usage:  sudo bpftrace tools/phase3-allocs.bt
+ * Usage:  sudo bpftrace tools/phase3-allocs.bt <tgid> <comm>
+ *          (filter: pid == tgid OR comm == <comm>; args must be non-empty —
+ *          use NONE for the unused mode; see phase3-launches.bt header)
  *
  * Maps at exit (SIGINT):
  *   @allocs[func]     call counts per allocation entry point
@@ -22,7 +24,7 @@
 BEGIN { printf("attached - start the server; SIGINT prints the maps\n"); }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemAlloc*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@allocs[probe] = count();
 	@alloc_bytes = sum((uint64)arg1);
@@ -30,7 +32,7 @@ uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemAlloc*
 }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemFree*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@frees = count();
 }

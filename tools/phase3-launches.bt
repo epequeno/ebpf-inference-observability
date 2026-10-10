@@ -4,7 +4,13 @@
  * visibility from outside the process — uprobes on the driver's entry points
  * in libcuda.so. All aggregation stays in-kernel; nothing streams per-event.
  *
- * Usage:  sudo bpftrace tools/phase3-launches.bt
+ * Usage:  sudo bpftrace tools/phase3-launches.bt <tgid> <comm>
+ *          Filter: pid == tgid (all threads) OR comm == <comm>. Both args must be
+ *          non-empty strings — an empty positional arg shifts/misaligns bpftrace's
+ *          argument indexing (found the hard way, 2026-10-10). Use NONE for the
+ *          unused mode: vLLM "<pid> NONE"; llama.cpp running "<pid> NONE";
+ *          pre-startup census "0 llama-server". vLLM NEEDS the tgid: its CUDA
+ *          threads are named "python3"/"pt_*", not the process title.
  *
  * Attach target: the probe spec uses the stable soname symlink libcuda.so.1,
  * which resolves to the driver's versioned file — one probe set, surviving
@@ -34,7 +40,7 @@
 BEGIN { printf("attached - run the load; SIGINT prints the maps\n"); }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuLaunchKernel*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@n = count();
 	@per10ms[nsecs / 10000000] = count();
@@ -50,7 +56,7 @@ uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuLaunchKernel*
 }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuGraphLaunch*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@graph_launch = count();
 	@graph_per10ms[nsecs / 10000000] = count();
@@ -66,25 +72,25 @@ uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuGraphLaunch*
 }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuStreamEndCapture*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@captures = count();
 }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuGraphInstantiate*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@instantiate = count();
 }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuGraphExecKernelNodeSetParams*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@graph_update = count();
 }
 
 uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemcpy*
-/comm == "llama-server"/
+/pid == $1 || comm == str($2)/
 {
 	@memcpy[probe] = count();
 }

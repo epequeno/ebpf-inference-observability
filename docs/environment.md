@@ -114,3 +114,10 @@ Rules for work on this box:
    CUDA graphs ON (the 0.6.0-dev shipping default) and `build-off/` =
    `GGML_CUDA_GRAPHS=OFF` (author-approved H1 confound control). The running server is
    the graphs-OFF binary; results-log entries record which binary each measurement used.
+
+7. **vLLM?** Introduced 2026-10-10 as an observation target: `vllm/vllm-openai:v0.23.0`
+   container (image already local from the sibling `full-stack-serving` repo; weights
+   from its `hf-cache` docker volume — no downloads), run with `--gpu-memory-utilization
+   0.45` to coexist with llama-server. Not a host install: no pip packages, no system
+   changes; the container is removed after each experiment session (relaunch command in
+   the results artifacts).
