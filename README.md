@@ -14,7 +14,32 @@ asserted.
 > **Status: experimental arc complete (2026-10-10)** — Phases 1–4 plus the vLLM
 > cross-engine leg are measured; H1 refuted (cross-engine), H2 confirmed, H3 refuted,
 > H4 confirmed. Bottom line: [`docs/findings.md`](docs/findings.md).
-> **Target host: the physical Linux box on the LAN.** This repo is **private**.
+> **Target host: a physical Linux box on the author's LAN** — probes only attach there.
+> Results were measured on real consumer hardware (RTX 4070 Ti SUPER), not a cloud
+> instance. This repo is **public**.
+
+## Headline findings
+
+All measured from outside the server — no instrumentation, no rebuild. Full narrative
+with evidence paths: [`docs/findings.md`](docs/findings.md).
+
+- **Token latency from sockets alone (H2 confirmed):** per-connection TTFB/ITL from
+  `tcp_sendmsg`, median error ≤5.9% TTFB / ~0.1% ITL against client ground truth across
+  C=1→64. The queueing signature is a TTFT staircase — TTFT degrades **532×** across the
+  sweep while ITL moves **+44%**: the prefill/decode split plus admission dynamics, from
+  the network layer.
+- **CUDA graphs economics, cross-engine:** llama.cpp collapses the API launch stream
+  **566×** and gains **~12% ITL** (small Q4 kernels are launch-bound); vLLM collapses it
+  **9×** for **~0%** (bf16 kernels are too big for launch overhead to matter). Same
+  mechanism, opposite latency outcomes — measured from outside on both engines.
+- **The CPU side is a futex metronome:** 99.6% of sleeps in `futex_do_wait`, zero
+  NVIDIA-driver wait sites, ~60 futex syscalls/token — orchestration that costs nothing
+  at this load, which is also why probe overhead stayed invisible.
+- **Loading is not lazy anywhere (H3 refuted):** 90–98% of faults land at model *load*
+  (prefetch hardcoded in llama.cpp; eager in vLLM) — the real warmup cost on this build is
+  CUDA-graph capture, not weight faulting.
+- **Probe overhead ≈ 0:** +0.0% ITL attached-vs-control at up to 190k uprobe events/s,
+  with the Craun et al. co-located-cost caveat carried on both overhead reports.
 
 ---
 
@@ -95,6 +120,28 @@ papers and benchmarks. The bridge — *"here is what continuous batching looks l
 `cuLaunchKernel` inter-arrival times, measured from outside the process"* — is the artifact this
 project is trying to produce. See `docs/design.md` for how it differs from nsys/ncu, DCGM,
 OpenTelemetry and py-spy.
+
+## Reusable tools
+
+The probes are generic — parameterized by pid/comm, attached via the stable
+`libcuda.so.1` soname — not tied to this repo's host or engine. Zero dependencies beyond
+`bpftrace`; attach to any inference server (llama.cpp, vLLM, anything HTTP/SSE over TCP)
+without touching it:
+
+| Tool | What it gives you |
+|---|---|
+| `tools/ttft.bt` | Per-connection TTFB/ITL from `tcp_sendmsg` — token latency with zero server instrumentation |
+| `tools/phase1-validate.py` + `phase1-sweep.sh` | The attached-vs-detached overhead pattern: validate any probe against client ground truth before quoting its numbers |
+| `tools/phase3-launches.bt` | CUDA API census from `libcuda` uprobes — launch rhythm, graph capture/replay counts, per-step structure |
+| `tools/phase3-allocs.bt` | `cuMemAlloc` census — KV-pool pre-allocation visibility |
+| `tools/phase4-faults.bt` | Page-fault timing at load vs first inference — is model loading lazy or eager |
+| `tools/phase2-threads.bt` | sched/futex census — what the server's CPU threads actually do between launches |
+| `tools/loadgen.py` | asyncio streaming load + TTFT/ITL/TTFB ground truth, with `--gap` bursty-arrival pacing |
+
+Each probe header records the hard-won kernel/driver facts that shaped it — the
+stable-soname attach (vs. the alias triple-count), vLLM's `python3`/`pt_*` thread names
+needing tgid filtering, container uprobes over the host bind-mount. Failures and dead
+ends are logged in `docs/results-log.md`.
 
 ## License
 

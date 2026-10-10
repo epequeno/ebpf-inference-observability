@@ -132,7 +132,11 @@ maps and histograms.
 - Keep the server under observation unmodified. If you feel the need to patch it to make
   something observable, that is a finding about the limits of external observation — record it
   and stop.
-- This repo is **private**. Do not publish it, or make its contents public, without asking.
+- This repo is **public** (2026-10-10, author's call). The scanner checklist that cleared the
+  flip: no secrets/tokens, no personal emails, no MAC/serial/UUID in `inventory/report.md`;
+  known and accepted: LAN addresses (192.168.0.0/24) and `/home/steven` paths in committed
+  artifacts. Do not move client-confidential material into this repo (the `fair-rfx-engine`
+  lesson); that would end this repo's public status.
 
 ## Out of scope
 
