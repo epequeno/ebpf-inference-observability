@@ -11,9 +11,10 @@ The project is also a structured path to learning both eBPF and inference-servin
 with each experiment designed to make one architectural claim empirically visible rather than
 asserted.
 
-> **Status: Phase 0a complete. Phase 1 tooling authored, untested — no eBPF on macOS.**
-> **Target host: the physical Linux box on the LAN** (it has the GPU; macOS cannot run eBPF).
-> This repo is **private**.
+> **Status: experimental arc complete (2026-10-10)** — Phases 1–4 plus the vLLM
+> cross-engine leg are measured; H1 refuted (cross-engine), H2 confirmed, H3 refuted,
+> H4 confirmed. Bottom line: [`docs/findings.md`](docs/findings.md).
+> **Target host: the physical Linux box on the LAN.** This repo is **private**.
 
 ---
 
@@ -25,23 +26,21 @@ asserted.
 | looking for the design | [`docs/design.md`](docs/design.md) — question, four-layer model, five phases |
 | looking for the claims under test | [`docs/hypotheses.md`](docs/hypotheses.md) — H1–H4 with falsification criteria |
 | setting up the machine | [`docs/environment.md`](docs/environment.md) — target host, Phase 0a/0b, GPU policy |
+| wanting the bottom line | [`docs/findings.md`](docs/findings.md) — the consolidated narrative, layer by layer |
 | wondering what's been learned | [`docs/results-log.md`](docs/results-log.md) — newest first |
 | wanting the background | [`docs/literature.md`](docs/literature.md) |
 
 ## Next action
 
-The host inventory is committed but **stale** — it predates the toolchain install and the
-script fixes. Regenerate on the target host (`sudo ./tools/host-inventory.sh >
-inventory/report.md`; read-only, installs nothing) and commit.
+**Paused (2026-10-10).** The experimental arc is complete and consolidated in
+[`docs/findings.md`](docs/findings.md); open follow-ups are listed there ("Open
+threads" — H1 on slower hardware, H2/H4 on vLLM, Phase 5, a symbol-rich rebuild
+decision). All results are committed under `results/`.
 
-Phase 0a is complete: llama.cpp is built (CUDA) and serving Qwen2.5-1.5B on the target host,
-and `tools/loadgen.py` produces TTFT/ITL ground truth. The next milestone is **Phase 1**
-(`docs/design.md`): per-connection TTFT/ITL from `tcp_sendmsg` timestamps, validated against
-that ground truth, with the probe's own overhead measured (attached vs detached) before any
-number is quoted. The tooling is authored — `tools/ttft.bt`, `tools/phase1-sweep.sh`,
-`tools/phase1-validate.py` — but has never run: bpftrace does not exist on macOS. First
-action on the target host: smoke `tools/ttft.bt`, then run the sweep. Runbook: top of
-`docs/results-log.md`.
+Resuming on the target host: restart llama.cpp with the flags in the 2026-10-09
+results-log entry (the graphs-OFF `build-off/` binary was the last under test;
+readiness regex `llama_server: listening`), or relaunch vLLM from the command in
+`results/vllm/20261010T202713Z/meta.txt`. Runbook: top of `docs/results-log.md`.
 
 ## The shape of the work
 
@@ -72,15 +71,21 @@ docs/
   environment.md          # target host, Phase 0a/0b, GPU-vs-CPU, privileges
   literature.md           # references
   results-log.md          # chronological log, newest first
+  findings.md             # consolidated narrative (the distinctive artifact)
   provenance.md           # what came from the private vault vs. what was added later
 tools/
   host-inventory.sh       # read-only host reconnaissance -> markdown report
-  loadgen.py              # asyncio streaming load + TTFT/ITL ground truth (JSONL)
-  ttft.bt                 # Phase 1 probe: per-connection TTFT/ITL from tcp_sendmsg
+  loadgen.py              # asyncio streaming load + TTFT/ITL/TTFB ground truth
+                          #   (--api llamacpp|openai, --gap arrival pacing)
+  ttft.bt                 # Phase 1 probe: per-connection TTFB/ITL from tcp_sendmsg
   phase1-sweep.sh         # attached-vs-detached load sweep (probe-overhead requirement)
   phase1-validate.py      # H2 validation: eBPF vs ground truth + probe cost
+  phase2-threads.bt       # Phase 2: thread-wake + sync census (sched/futex/glibc)
+  phase3-launches.bt      # Phase 3: CUDA launch/graph/memcpy census (libcuda uprobes)
+  phase3-allocs.bt        # Phase 3: cuMemAlloc/Free census
+  phase4-faults.bt        # Phase 4: page-fault + mmap/madvise census
 inventory/                # collected host reports
-results/                  # sweep outputs (results/phase1/<UTC stamp>/), committed
+results/                  # committed artifacts: phase1/, phase2/, phase3/, phase4/, vllm/
 ```
 
 ## Why this is worth doing

@@ -90,6 +90,16 @@ meta.txt). **The experimental arc (Phases 1–4 + cross-engine) is complete.** N
 Phase 5 (multi-tenant attribution, optional stretch) or consolidation/write-up.
 Runbook: top of `docs/results-log.md`.
 
+**PAUSED (2026-10-10, end of session):** the consolidation is done —
+`docs/findings.md` is the consolidated narrative (scoreboard, layer-by-layer findings,
+reproducibility map, open threads), and `README.md`'s status reflects it. The llama-server
+session service was **stopped** before pausing (GPU free for other work — the box is
+shared with `../full-stack-serving`). Resume by restarting llama.cpp with the flags in
+the 2026-10-09 results-log entry (last binary under test: `build-off/`, graphs OFF;
+readiness regex `llama_server: listening`), or relaunch vLLM from
+`results/vllm/20261010T202713Z/meta.txt`. The vllm-obs container was removed; the image
+and the sibling's `hf-cache` volume are retained.
+
 ## Rules
 
 **Do not install anything without asking.** The inventory script is deliberately read-only.

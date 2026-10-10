@@ -46,6 +46,11 @@ and what was added, so nothing looks original when it is not.
    but had not implemented.
 6. **"Negative results are results"** framing, including a definition of what a null result
    across all four hypotheses would mean.
+7. **Everything from the 2026-10-09/10 saturn sessions** — the five probes and validator
+   tooling under `tools/`, all `results/` artifacts, the finalized H2 tolerances and TTFB
+   clause (author decision, recorded in `hypotheses.md`), the H1/H3 refutations and
+   H2/H4 confirmations, and the consolidation `docs/findings.md`. Session-authored, not
+   in the vault; per this file's convention, this repo is authoritative for them.
 
 ## Not authoritative for the author's own record
 
