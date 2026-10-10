@@ -30,10 +30,14 @@ An inference server is four systems stacked. Each maps to a set of eBPF hooks.
 | 3. GPU driver consumer | CUDA kernel launches, memory management | uprobes on `libcuda.so` / `libcudart.so` (`cuLaunchKernel`, `cuMemAlloc`, `cuMemcpy*`) |
 | 4. Memory system | Model weight loading, KV-cache paging | `mmap` / `madvise` syscall tracing, `handle_mm_fault`, RSS tracking |
 
-**The constraint that shapes everything: eBPF cannot run on the GPU.** GPU visibility is
-indirect — by tracing the user-space CUDA API, which turns out to reveal a great deal (launch
-rhythm, transfer overhead, allocation behaviour). This is a deliberate boundary, not a
-limitation to be worked around.
+**The constraint that shapes everything: eBPF cannot run on the GPU — with stock kernels,
+drivers and tools.** Research prototypes have broken even that: eGPU (HCDS'25, open-source in
+`eunomia-bpf/bpftime`) JIT-translates eBPF to PTX and injects it into live kernels, and
+gpu_ext (arXiv:2512.12615) runs verified policy device-side. None is mainline or deployable on
+the target host. GPU visibility here therefore stays indirect — tracing the user-space CUDA
+API, which reveals launch rhythm, transfer overhead and allocation behaviour — now as a
+**pragmatic choice** rather than a hard impossibility. See `docs/literature.md` → "GPU / CUDA
+observability precedents".
 
 ## What we expect to make visible
 
@@ -128,6 +132,9 @@ many small launches; CUDA graphs visibly collapse launch counts. (H1, H4.)
   presence before you start.
 - Uprobe overhead at high launch rates — **aggregate in-kernel (BPF maps), never stream every
   event to user space.**
+- Device-side eBPF (eGPU / bpftime, gpu_ext) exists but is research-grade and not portable to
+  this host's driver stack; user-space CUDA uprobes remain the portable path. Revisit only if
+  ABI-level visibility proves too coarse for H1/H4.
 
 **Deliverable:** launch-rate time series prefill vs. decode; memcpy and alloc event logs;
 graphs-on/off comparison table.
@@ -216,7 +223,10 @@ the null up front so it cannot be reinterpreted after the fact.
 | Python profiling (py-spy) | Python call stacks | Crosses Python → C++ → driver, and adds kernel-side events |
 
 **The distinctive artifact:** a single coherent, externally-observed narrative of what an
-inference server does, layer by layer, with reproducible experiments. Most eBPF material
-targets SRE host observability; most serving material is papers and benchmarks. The bridge —
-"here is what continuous batching looks like in `cuLaunchKernel` inter-arrival times" — is the
-contribution.
+inference server does, layer by layer, with reproducible experiments. eBPF profilers that reach
+engine internals now exist (ProfInfer, eInfer, Herschel — white-box, engine-coupled; see
+`docs/literature.md`). What none of them does is observe **serving behavior black-box** —
+request-level latency from network events validated against an independent client (H2),
+continuous batching under concurrent load (H4), portable across engines via stable ABIs.
+The bridge — "here is what continuous batching looks like in `cuLaunchKernel` inter-arrival
+times" — is the contribution.
