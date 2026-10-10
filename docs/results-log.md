@@ -16,6 +16,24 @@ Rules:
 
 ---
 
+## 2026-10-10 — H2 verdict: confirmed (author ruling — same-interval TTFB)
+
+- The author ruled that the pre-registered "probe TTFB vs client TTFB" comparison is
+  **same-interval**: the client's origin is the probe's own `r0` (both clocks join), the
+  reading consistent with the framing-symmetric ITL definition approved before the sweep.
+  Conventional write-origin TTFB stays logged as informational.
+- Final validated numbers (`tools/phase1-validate.py` updated to compute the ruling; same
+  collected sweep data, `results/phase1/20261010T122431Z/`):
+  - **TTFB same-interval:** median abs rel err 5.9% / 4.9% / 0.0% / 0.0% at C=1/4/16/64,
+    Pearson r 0.956 / 0.910 / 1.000 / 1.000.
+  - **ITL framing-symmetric:** median abs rel err 0.1% at every C, r ≥ 0.9987.
+  - Conventional write-origin TTFB (informational): 10.1% / 6.1% / 0.0% / 0.0%.
+  - Both criteria (median ≤ 10%, r ≥ 0.9) met at every concurrency. **H2 confirmed.**
+- `docs/hypotheses.md` carries the ruling as a dated addendum; the falsification criteria
+  text is unchanged.
+- Next: Phase 2 (scheduler/CPU; needs `bcc-tools` — install is an author call) or Phase 3
+  (CUDA uprobes; GPU ready).
+
 ## 2026-10-10 — Phase 1 sweep (H2 measured): ITL confirmed at every C; TTFB pending one adjudication
 
 - **Context:** same host/session as the entries below (kernel 7.0.0-38-generic, driver

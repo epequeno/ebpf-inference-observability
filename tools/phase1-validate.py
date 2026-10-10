@@ -25,6 +25,11 @@ framing-symmetric ITL: both sides measure the same physical span
 sends/tokens ratio is reported so framing stays visible, never silently
 absorbed.
 
+TTFB is compared same-interval: the client's origin is the probe's own r0
+(author ruling 2026-10-10, recorded after the sweep; both clocks join, so
+this is computable from the same collected data). The conventional
+write-origin number is reported alongside as informational.
+
 H2 tolerances were finalized 2026-10-10 BEFORE the first measurement
 (docs/hypotheses.md): corrected TTFB and framing-symmetric ITL must meet
 median abs rel error <= 10% and Pearson r >= 0.9. This tool reports
@@ -146,6 +151,7 @@ def mode_match(args):
     pairs, unmatched = pair(conns, recs, args.slack)
 
     ttfb_err, ttfb_probe, ttfb_gt = [], [], []
+    ttfb_w_err = []  # conventional write-origin TTFB (informational)
     itl_err, itl_probe, itl_gt = [], [], []  # framing-symmetric
     ttft_raw_err, itl_raw_err = [], []
     ratios = []
@@ -157,10 +163,12 @@ def mode_match(args):
         fb_abs = r["abs_t0_s"] + r["ttfb_s"]   # first response byte
         end_abs = r["abs_t0_s"] + r["end_s"]  # [DONE] / stream end
         tp = c["t0"] - c["r0"]                # probe TTFB: read -> header write
-        tg = fb_abs - write                    # client TTFB: write -> first byte
+        tg = fb_abs - c["r0"]                 # client TTFB, same interval (author
+                                             # ruling 2026-10-10): server read -> first byte
         ip = (c["last"] - c["t0"]) / (c["nsends"] - 1) if c["nsends"] > 1 else None
         ig = (end_abs - fb_abs) / (c["nsends"] - 1) if c["nsends"] > 1 else None
         e_ttfb = abs(tp - tg) / tg if tg else None
+        e_ttfb_w = abs(tp - (fb_abs - write)) / (fb_abs - write) if fb_abs > write else None
         e_itl = abs(ip - ig) / ig if ip is not None and ig else None
         # raw, framing-uncorrected references (reported per the finalized H2 note)
         e_ttft_raw = abs(tp - r["ttft_s"]) / r["ttft_s"] if r["ttft_s"] else None
@@ -176,6 +184,8 @@ def mode_match(args):
             ttfb_err.append(e_ttfb)
             ttfb_probe.append(tp)
             ttfb_gt.append(tg)
+        if e_ttfb_w is not None:
+            ttfb_w_err.append(e_ttfb_w)
         if e_itl is not None:
             itl_err.append(e_itl)
             itl_probe.append(ip)
@@ -193,10 +203,13 @@ def mode_match(args):
           f"slack {args.slack}s)")
     if ttfb_err:
         r = corr(ttfb_gt, ttfb_probe)
-        print(f"ttfb (H2 metric): median abs rel error {pct(ttfb_err)}  "
+        print(f"ttfb same-interval (H2 metric): median abs rel error {pct(ttfb_err)}  "
               + (f"pearson r {r:.4f}" if r is not None else "pearson r n/a"))
     else:
         print("ttfb: no pairs")
+    if ttfb_w_err:
+        print(f"ttfb write-origin (conventional TTFB; informational): "
+              f"median abs rel error {pct(ttfb_w_err)}")
     if itl_err:
         r = corr(itl_gt, itl_probe)
         print(f"itl framing-symmetric (H2 metric): median abs rel error {pct(itl_err)}  "
@@ -213,9 +226,9 @@ def mode_match(args):
         print(f"send/token ratio: median {statistics.median(ratios):.3f} "
               f"— the framing structure behind the raw-vs-corrected gap")
     print()
-    print("H2 criteria (finalized 2026-10-10, docs/hypotheses.md): ttfb and "
-          "framing-symmetric itl — median abs rel error <= 10%, pearson r >= 0.9; "
-          "raw values reported alongside.")
+    print("H2 criteria (finalized 2026-10-10, docs/hypotheses.md): ttfb (same-interval, "
+          "author ruling 2026-10-10) and framing-symmetric itl — median abs rel error <= 10%, "
+          "pearson r >= 0.9; conventional/raw values reported alongside.")
 
 
 def load_summary(path):

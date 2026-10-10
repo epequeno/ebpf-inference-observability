@@ -68,6 +68,12 @@ framing-symmetric), matching client-side ground truth within the tolerance below
 > gap, so first-token TTFT is not recoverable from send timing alone. That is a limit of
 > external observation, recorded as such, not a hypothesis failure. 10% / 0.9 apply to the
 > corrected metrics; evidence and rationale in `docs/results-log.md`, 2026-10-10 saturn entry.
+>
+> **Ruling 2026-10-10, after the sweep:** the TTFB comparison is same-interval — the
+> client's origin is the probe's own `r0` (both clocks join), the reading consistent
+> with the framing-symmetric ITL definition above; the conventional write-origin
+> number stays logged as informational. Under this ruling every concurrency passes
+> both criteria and **H2 is confirmed** — see the 2026-10-10 results-log entries.
 
 **Confounds.**
 - **SSE framing.** Pre-token writes (headers) and a trailing `[DONE]` write sit inside the
@@ -161,6 +167,6 @@ that is a refutation of H2, not a promising direction.
 | Hypothesis | Status | Blocked on |
 |---|---|---|
 | H1 | not started | Phase 3 start (Phase 0a + 0b complete) |
-| H2 | measured 2026-10-10 (sweep `20261010T122431Z`): ITL framing-symmetric confirmed at all C (≤0.1% median, r≥0.999); TTFB confirmed at C=4/16/64; C=1 TTFB write-origin 10.1% vs same-interval 5.9% | author verdict: TTFB origin variant → final H2 status |
+| H2 | **confirmed** (2026-10-10, sweep `20261010T122431Z`): TTFB same-interval median err 5.9/4.9/0.0/0.0% at C=1/4/16/64 (r≥0.91), ITL framing-symmetric 0.1% at every C (r≥0.999); probe cost within run noise | — |
 | H3 | not started | Phase 4 start (Phase 0a complete) |
 | H4 | not started | Phase 3.1 working |

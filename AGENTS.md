@@ -47,11 +47,10 @@ The next milestone is **Phase 1** (`docs/design.md`): per-connection TTFT/ITL fr
 `tcp_sendmsg` timestamps, validated against that ground truth, with the probe's own
 overhead measured (attached vs detached) before any number is quoted. **The sweep has
 run** (2026-10-10, `results/phase1/20261010T122431Z/`): ITL confirmed at every
-concurrency (≤0.2% median error, r≥0.999), TTFB confirmed at C=4/16/64, and the C=1
-TTFB result depends on one author adjudication (write-origin vs same-interval
-comparison — see the results-log entry). Probe cost: within run noise at all C. That
-one decision finalizes H2; after that, Phase 2 (needs `bcc-tools` — install is an
-author call) or Phase 3 (CUDA uprobes). Runbook: top of `docs/results-log.md`.
+concurrency (≤0.2% median error, r≥0.999) and TTFB confirmed at every C under the
+author's same-interval ruling (≤5.9%, r≥0.91) — **H2 is confirmed**; probe cost
+within run noise. Next: Phase 2 (needs `bcc-tools` — install is an author call)
+or Phase 3 (CUDA uprobes). Runbook: top of `docs/results-log.md`.
 
 ## Rules
 
