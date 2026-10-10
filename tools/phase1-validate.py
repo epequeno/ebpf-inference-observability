@@ -3,9 +3,10 @@
 
 Modes
   match     Pair tools/ttft.bt per-connection CONN lines with tools/loadgen.py
-            records from the SAME attached run; report per-pair TTFT/ITL,
-            median absolute relative error, Pearson correlation, and the
-            send/token ratio (see bias note below).
+            records from the SAME attached run; report per-pair TTFB and
+            framing-symmetric ITL, median absolute relative error, Pearson
+            correlation, and the send/token ratio (see framing note below).
+            Raw, framing-uncorrected references are reported alongside.
   overhead  Compare run summaries with the probe detached vs attached — the
             probe's own cost. docs/design.md: quote no eBPF-derived number
             without this comparison.
@@ -14,14 +15,20 @@ Clocks: bpftrace nsecs and asyncio loop.time() are both CLOCK_MONOTONIC
 since boot on the same host, so client records (abs_t0_s, new in loadgen)
 and kernel CONN lines join without conversion — only differences are used.
 
-Send/token bias: SSE framing means more sends than tokens (Phase 0a smoke:
-288 sends vs 256 tokens ≈ 1.125). Per-connection MEAN inter-send time is
-therefore biased low by roughly (n_tokens-1)/(n_sends-1). The per-pair
-sends/tokens ratio is reported so this stays visible, not silently absorbed.
+Framing (measured, saturn 2026-10-10): llama.cpp emits ~3 pre-token header
+writes and one trailing [DONE] write per connection (sends/tokens ≈ 1.06 at
+64 tokens), so probe (t0 - r0) is TTFB, not first-token TTFT, and the raw
+mean inter-send time is framing-biased with MIXED sign (-4% to +12%
+observed at C=1). The H2 metrics are therefore TTFB and the
+framing-symmetric ITL: both sides measure the same physical span
+(first send/byte -> last send/byte) over the same send count. The per-pair
+sends/tokens ratio is reported so framing stays visible, never silently
+absorbed.
 
-H2 tolerances (docs/hypotheses.md: median abs error 10%, correlation 0.9)
-are PLACEHOLDERS for the author to finalize BEFORE the first measurement.
-This tool reports numbers; it does not decide pass/fail.
+H2 tolerances were finalized 2026-10-10 BEFORE the first measurement
+(docs/hypotheses.md): corrected TTFB and framing-symmetric ITL must meet
+median abs rel error <= 10% and Pearson r >= 0.9. This tool reports
+numbers; it does not decide pass/fail.
 
 Usage:
   phase1-validate.py --mode match --probe probe.txt --ground-truth attached.jsonl [--slack 10]
@@ -71,34 +78,50 @@ def load_records(path):
                 continue
             if not obj.get("ok"):
                 continue
-            if obj.get("abs_t0_s") is None:
+            if obj.get("abs_t0_s") is None or obj.get("ttfb_s") is None \
+                    or obj.get("end_s") is None:
                 stale += 1
                 continue
             if obj.get("ttft_s") is None:
                 continue
             recs.append(obj)
     if stale:
-        print(f"warning: {stale} ok records lack abs_t0_s "
-              "(old loadgen?) — skipped", flush=True)
+        print(f"warning: {stale} ok records lack abs_t0_s/ttfb_s/end_s "
+              "(old loadgen output?) — skipped", flush=True)
     return recs
 
 
 def pair(conns, recs, slack):
-    """Greedy nearest-time pairing: client write time vs server first read."""
+    """Greedy nearest-time pairing, cross-checked on BOTH connection endpoints.
+
+    Candidate by client-write vs server-first-read (r0); accepted only if the
+    client's stream end also matches the connection's last send. Under a
+    concurrent burst every write and every r0 land within microseconds of each
+    other, so read-proximity alone misassigns records across queueing waves —
+    observed at C>=16 as impossible pairs (client TTFB < probe TTFB). The
+    end-time check rejects cross-wave swaps (they differ by a whole request
+    duration); same-wave swaps it cannot see, but their metrics are
+    near-identical, so the error impact is nil.
+    """
+    END_SLACK = 0.05  # s; true pairs differ by loopback transit (~us-ms)
     pairs, unmatched = [], []
     used = [False] * len(conns)
     for r in sorted(recs, key=lambda r: r["abs_t0_s"] + r["sent_at"]):
         write = r["abs_t0_s"] + r["sent_at"]
-        best, best_d = None, None
-        for i, c in enumerate(conns):
-            if used[i]:
-                continue
-            d = abs(c["r0"] - write)
-            if best_d is None or d < best_d:
-                best, best_d = i, d
-        if best is not None and best_d <= slack:
-            used[best] = True
-            pairs.append((r, conns[best]))
+        end = r["abs_t0_s"] + r["end_s"]
+        cands = sorted(
+            (abs(c["r0"] - write), i) for i, c in enumerate(conns) if not used[i]
+        )
+        pick = None
+        for d, i in cands:
+            if d > slack:
+                break
+            if abs(conns[i]["last"] - end) <= END_SLACK:
+                pick = i
+                break
+        if pick is not None:
+            used[pick] = True
+            pairs.append((r, conns[pick]))
         else:
             unmatched.append(r)
     return pairs, unmatched
@@ -122,33 +145,45 @@ def mode_match(args):
     recs = load_records(args.ground_truth)
     pairs, unmatched = pair(conns, recs, args.slack)
 
-    tt_err, tt_probe, tt_gt = [], [], []
-    itl_err, itl_probe, itl_gt = [], [], []
+    ttfb_err, ttfb_probe, ttfb_gt = [], [], []
+    itl_err, itl_probe, itl_gt = [], [], []  # framing-symmetric
+    ttft_raw_err, itl_raw_err = [], []
     ratios = []
 
-    print("| idx | ttft gt s | ttft probe s | err | itl gt s | itl probe s | err | sends | tokens | sends/tokens |")
+    print("| idx | ttfb gt s | ttfb probe s | err | itl-fs gt s | itl-fs probe s | err | sends | tokens | ratio |")
     print("|---|---|---|---|---|---|---|---|---|---|")
     for r, c in pairs:
-        tp = c["t0"] - c["r0"]
-        tg = r["ttft_s"]
+        write = r["abs_t0_s"] + r["sent_at"]
+        fb_abs = r["abs_t0_s"] + r["ttfb_s"]   # first response byte
+        end_abs = r["abs_t0_s"] + r["end_s"]  # [DONE] / stream end
+        tp = c["t0"] - c["r0"]                # probe TTFB: read -> header write
+        tg = fb_abs - write                    # client TTFB: write -> first byte
         ip = (c["last"] - c["t0"]) / (c["nsends"] - 1) if c["nsends"] > 1 else None
-        ig = statistics.fmean(r["itl_s"]) if r["itl_s"] else None
-        e_tt = abs(tp - tg) / tg if tg else None
+        ig = (end_abs - fb_abs) / (c["nsends"] - 1) if c["nsends"] > 1 else None
+        e_ttfb = abs(tp - tg) / tg if tg else None
         e_itl = abs(ip - ig) / ig if ip is not None and ig else None
+        # raw, framing-uncorrected references (reported per the finalized H2 note)
+        e_ttft_raw = abs(tp - r["ttft_s"]) / r["ttft_s"] if r["ttft_s"] else None
+        ig_tok = statistics.fmean(r["itl_s"]) if r["itl_s"] else None
+        e_itl_raw = abs(ip - ig_tok) / ig_tok if ip is not None and ig_tok else None
         ratio = c["nsends"] / r["n_tokens"] if r["n_tokens"] else None
         fmt = lambda v: f"{v:.4f}" if v is not None else "n/a"
         ferr = lambda v: f"{v * 100:.1f}%" if v is not None else "n/a"
-        print(f"| {r['index']} | {fmt(tg)} | {fmt(tp)} | {ferr(e_tt)} | "
+        print(f"| {r['index']} | {fmt(tg)} | {fmt(tp)} | {ferr(e_ttfb)} | "
               f"{fmt(ig)} | {fmt(ip)} | {ferr(e_itl)} | {c['nsends']} | "
               f"{r['n_tokens']} | {fmt(ratio) if ratio else 'n/a'} |")
-        if e_tt is not None:
-            tt_err.append(e_tt)
-            tt_probe.append(tp)
-            tt_gt.append(tg)
+        if e_ttfb is not None:
+            ttfb_err.append(e_ttfb)
+            ttfb_probe.append(tp)
+            ttfb_gt.append(tg)
         if e_itl is not None:
             itl_err.append(e_itl)
             itl_probe.append(ip)
             itl_gt.append(ig)
+        if e_ttft_raw is not None:
+            ttft_raw_err.append(e_ttft_raw)
+        if e_itl_raw is not None:
+            itl_raw_err.append(e_itl_raw)
         if ratio:
             ratios.append(ratio)
 
@@ -156,24 +191,31 @@ def mode_match(args):
     print(f"pairs: {len(pairs)}/{len(recs)} ground-truth records "
           f"({len(unmatched)} unmatched, {len(conns) - len(pairs)} unpaired probe conns, "
           f"slack {args.slack}s)")
-    if tt_err:
-        r = corr(tt_gt, tt_probe)
-        print(f"ttft: median abs rel error {pct(tt_err)}  "
-              f"pearson r {r:.4f}" if r is not None else f"ttft: median abs rel error {pct(tt_err)}  pearson r n/a")
+    if ttfb_err:
+        r = corr(ttfb_gt, ttfb_probe)
+        print(f"ttfb (H2 metric): median abs rel error {pct(ttfb_err)}  "
+              + (f"pearson r {r:.4f}" if r is not None else "pearson r n/a"))
     else:
-        print("ttft: no pairs")
+        print("ttfb: no pairs")
     if itl_err:
         r = corr(itl_gt, itl_probe)
-        print(f"itl:  median abs rel error {pct(itl_err)}  "
-              f"pearson r {r:.4f}" if r is not None else f"itl:  median abs rel error {pct(itl_err)}  pearson r n/a")
+        print(f"itl framing-symmetric (H2 metric): median abs rel error {pct(itl_err)}  "
+              + (f"pearson r {r:.4f}" if r is not None else "pearson r n/a"))
     else:
-        print("itl:  no pairs")
+        print("itl: no pairs")
+    if ttft_raw_err:
+        print(f"ttft raw (probe t0-r0 vs client first-token; informational): "
+              f"median abs rel error {pct(ttft_raw_err)}")
+    if itl_raw_err:
+        print(f"itl raw (vs client token-mean; informational): "
+              f"median abs rel error {pct(itl_raw_err)}")
     if ratios:
         print(f"send/token ratio: median {statistics.median(ratios):.3f} "
-              f"— biases probe mean-ITL low by ~(tokens-1)/(sends-1)")
+              f"— the framing structure behind the raw-vs-corrected gap")
     print()
-    print("H2 placeholders (docs/hypotheses.md; author must finalize BEFORE "
-          "the first measurement): median abs error <= 10%, correlation >= 0.9")
+    print("H2 criteria (finalized 2026-10-10, docs/hypotheses.md): ttfb and "
+          "framing-symmetric itl — median abs rel error <= 10%, pearson r >= 0.9; "
+          "raw values reported alongside.")
 
 
 def load_summary(path):
@@ -194,6 +236,7 @@ def mode_overhead(args):
     print("|---|---|---|---|")
     for key, label in [
         ("ttft_s_p50", "ttft p50 (s)"),
+        ("ttfb_s_p50", "ttfb p50 (s)"),
         ("ttft_s_p90", "ttft p90 (s)"),
         ("itl_s_mean", "itl mean (s)"),
         ("itl_s_p50", "itl p50 (s)"),

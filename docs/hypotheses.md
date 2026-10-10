@@ -41,28 +41,38 @@ separable without knowing anything the server tells us.
 
 ---
 
-## H2 — TTFT and ITL are measurable from `tcp_sendmsg` timing alone
+## H2 — TTFB and ITL are measurable from `tcp_sendmsg` timing alone
 
 > Request-level latency is recoverable from network events, with no application instrumentation.
 
-**Prediction.** Per-connection, timestamps of `tcp_sendmsg` calls on the server's listening port
-recover TTFT (first send after request arrival) and ITL (inter-send gaps thereafter), matching
-client-side ground truth within a small tolerance.
+**Prediction.** Per-connection, timestamps of `tcp_sendmsg` calls on the server's listening
+port recover **time-to-first-byte** (the first send after request arrival — for an SSE server,
+the HTTP-header write) and **mean inter-send latency** (response span over send count,
+framing-symmetric), matching client-side ground truth within the tolerance below.
 
 **Falsification.** Any of:
 
-- Median absolute error against client-side ground truth exceeds **10%**, or the correlation
-  between eBPF-derived and client-observed ITL is below **0.9**.
+- Median absolute relative error of the corrected metrics against client-side ground truth
+  (probe TTFB vs client time-to-first-byte; framing-symmetric mean ITL vs its client
+  equivalent) exceeds **10%**, or the correlation between eBPF-derived and client-observed
+  values is below **0.9**. Raw, uncorrected per-pair values are always reported alongside.
 - The error is not stable across concurrency levels — i.e. it degrades as load rises, which
   would make the measurement unusable exactly when it matters.
-- Send boundaries do not correspond to token boundaries at all (multiple tokens coalesced into
-  one segment, or one token split across segments) so thoroughly that per-token timing is
-  unrecoverable.
+- Send boundaries do not correspond to token boundaries at all (multiple tokens coalesced
+  into one segment, or one token split across segments) so thoroughly that per-token timing
+  is unrecoverable — checked via the per-pair send/token ratio.
 
-> **Set the tolerance before the first measurement.** 10% / 0.9 are the numbers to beat;
-> adjust them in this file before running, not after seeing the result.
+> **Finalized 2026-10-10, before the first measurement** (author decision, after the saturn
+> smoke): the TTFT clause is redefined as time-to-first-byte — the smoke showed the first
+> send is a header write preceding the first token by a variable, state-dependent 3–35 ms
+> gap, so first-token TTFT is not recoverable from send timing alone. That is a limit of
+> external observation, recorded as such, not a hypothesis failure. 10% / 0.9 apply to the
+> corrected metrics; evidence and rationale in `docs/results-log.md`, 2026-10-10 saturn entry.
 
 **Confounds.**
+- **SSE framing.** Pre-token writes (headers) and a trailing `[DONE]` write sit inside the
+  send stream; they are why the ITL comparison is framing-symmetric rather than token-mean.
+  Per-pair send/token ratio ≈ 1.06 observed at C=1 (llama.cpp).
 - **TCP coalescing and Nagle.** Multiple tokens may share a segment. Mitigate by disabling
   Nagle on the client and recording segment sizes.
 - **Write paths that bypass `tcp_sendmsg`.** `sendfile`/`splice` do not necessarily go through
@@ -151,6 +161,6 @@ that is a refutation of H2, not a promising direction.
 | Hypothesis | Status | Blocked on |
 |---|---|---|
 | H1 | not started | Phase 3 start (Phase 0a + 0b complete) |
-| H2 | tooling smoked on saturn (2026-10-10); probe TTFT measures the header write, not the first token — definitional decision pending | author decision: TTFT clause + tolerances, then Phase 1 sweep |
+| H2 | measured 2026-10-10 (sweep `20261010T122431Z`): ITL framing-symmetric confirmed at all C (≤0.1% median, r≥0.999); TTFB confirmed at C=4/16/64; C=1 TTFB write-origin 10.1% vs same-interval 5.9% | author verdict: TTFB origin variant → final H2 status |
 | H3 | not started | Phase 4 start (Phase 0a complete) |
 | H4 | not started | Phase 3.1 working |

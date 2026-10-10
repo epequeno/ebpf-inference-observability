@@ -100,7 +100,7 @@ for C in "${conns[@]}"; do
 	bpftrace tools/ttft.bt "$PID" >"$d/probe.txt" 2>&1 &
 	BPID=$!
 	sleep 5
-	if ! kill -0 "$BPID" 2>/dev/null || ! grep -q Attaching "$d/probe.txt"; then
+	if ! kill -0 "$BPID" 2>/dev/null || ! grep -qE 'Attach(ed|ing)' "$d/probe.txt"; then
 		echo "error: bpftrace did not attach — see $d/probe.txt" >&2
 		kill "$BPID" 2>/dev/null || true
 		exit 1

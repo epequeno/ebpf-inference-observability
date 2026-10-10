@@ -45,12 +45,13 @@ readiness regex `llama_server: listening`).
 
 The next milestone is **Phase 1** (`docs/design.md`): per-connection TTFT/ITL from
 `tcp_sendmsg` timestamps, validated against that ground truth, with the probe's own
-overhead measured (attached vs detached) before any number is quoted. `ttft.bt` has now
-run on the target host (smoke at C=1: `CONN` lines + exit histograms work) and the smoke
-exposed a definitional issue: the probe's TTFT (`t0 − r0`) measures the HTTP-header write,
-not the first token — see the 2026-10-10 results-log entry. **The sweep is blocked on an
-author decision:** finalize H2's TTFT clause and tolerances in `docs/hypotheses.md`, then
-run `sudo ./tools/phase1-sweep.sh`. Runbook: top of `docs/results-log.md`.
+overhead measured (attached vs detached) before any number is quoted. **The sweep has
+run** (2026-10-10, `results/phase1/20261010T122431Z/`): ITL confirmed at every
+concurrency (≤0.2% median error, r≥0.999), TTFB confirmed at C=4/16/64, and the C=1
+TTFB result depends on one author adjudication (write-origin vs same-interval
+comparison — see the results-log entry). Probe cost: within run noise at all C. That
+one decision finalizes H2; after that, Phase 2 (needs `bcc-tools` — install is an
+author call) or Phase 3 (CUDA uprobes). Runbook: top of `docs/results-log.md`.
 
 ## Rules
 

@@ -1,0 +1,18 @@
+tools/ttft.bt:76:3-19: WARNING: Return value discarded.
+        delete(@r0[$sk]);
+        ~~~~~~~~~~~~~~~~
+tools/ttft.bt:77:3-19: WARNING: Return value discarded.
+        delete(@t0[$sk]);
+        ~~~~~~~~~~~~~~~~
+tools/ttft.bt:78:3-21: WARNING: Return value discarded.
+        delete(@last[$sk]);
+        ~~~~~~~~~~~~~~~~~~
+tools/ttft.bt:79:3-23: WARNING: Return value discarded.
+        delete(@nsends[$sk]);
+        ~~~~~~~~~~~~~~~~~~~~
+tools/ttft.bt:80:3-22: WARNING: Return value discarded.
+        delete(@bytes[$sk]);
+        ~~~~~~~~~~~~~~~~~~~
+Attached 3 probes
+
+

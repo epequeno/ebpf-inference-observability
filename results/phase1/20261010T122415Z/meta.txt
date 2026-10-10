@@ -1,0 +1,12 @@
+date_utc:           2026-10-10T12:24:15Z
+kernel:             7.0.0-38-generic
+bpftrace:           bpftrace v0.25.0
+server_pid:         8945
+server_cmd:         ./build/bin/llama-server --host 127.0.0.1 --port 8080 -m /home/steven/models/qwen2.5-1.5b-instruct-q4_k_m.gguf -ngl 99 -c 4096 -np 4 
+gpu:                NVIDIA GeForce RTX 4070 Ti SUPER, 595.99.02
+git:                c0b78c4-dirty
+conns:              1 4 16 64
+requests_per_conn:  max(16, 4*C) unless REQUESTS set
+max_tokens:         32
+prompt:             <loadgen default>
+page_caches_dropped: no (weights resident after warmup; H3/Phase 4 controls this)

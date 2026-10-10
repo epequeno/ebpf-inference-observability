@@ -16,6 +16,71 @@ Rules:
 
 ---
 
+## 2026-10-10 — Phase 1 sweep (H2 measured): ITL confirmed at every C; TTFB pending one adjudication
+
+- **Context:** same host/session as the entries below (kernel 7.0.0-38-generic, driver
+  595.99.02, llama.cpp 0.6.0-dev CUDA build, bpftrace 0.25.0, server pid 8945, page caches
+  NOT dropped, CUDA graphs N/A for llama.cpp). H2 was finalized (TTFB clause + 10%/0.9
+  corrected tolerances) BEFORE this run; loadgen gained `ttfb_s`/`end_s`, the validator the
+  framing-symmetric metrics. Sweep: `sudo ./tools/phase1-sweep.sh` →
+  `results/phase1/20261010T122431Z/` — per C (1, 4, 16, 64; requests 16/16/64/256,
+  max_tokens 32): unmeasured warmup, detached baseline, attached run, SIGINT for exit
+  histograms. `meta.txt` records `git c0b78c4-dirty` — the TTFB tooling edits (committed
+  immediately after this entry) were in the working tree during the run.
+- **Two tooling bugs found and fixed mid-sweep (first attempts kept as artifacts):**
+  1. The sweep's attach check grepped `Attaching`, but bpftrace 0.25 prints
+     `Attached N probes` — first attempt aborted at c=1
+     (`results/phase1/20261010T122415Z/`, kept). Check now matches `Attach(ed|ing)`.
+  2. The validator's pairing scrambled the concurrent burst at C≥16: all client writes and
+     all server first-reads land within microseconds, so greedy read-proximity matching
+     misassigned records across queueing waves — visible as impossible pairs (client TTFB
+     < probe TTFB on one connection). Fixed with a two-endpoint cross-check (r0↔write AND
+     last↔end_s, 50 ms). Post-fix: 0 unmatched at all C, 0 impossible pairs at C=1/4/16;
+     residual same-wave swaps ≈2/256 at C=64, bounded by the within-wave TTFB spread —
+     medians unaffected.
+- **Results (attached runs, post-fix validator; send/token ratio 1.125 at 32 tokens
+  everywhere):**
+
+  | C | TTFB med err (write-origin) | TTFB r | ITL-fs med err | ITL-fs r | raw TTFT med err | raw ITL med err |
+  |---|---|---|---|---|---|---|
+  | 1 | 10.1% | 0.926 | 0.1% | 0.9999 | 76.8% | 8.4% |
+  | 4 | 6.1% | 0.910 | 0.1% | 0.9988 | 58.9% | 8.7% |
+  | 16 | 0.0% | 1.000 | 0.1% | 0.9987 | 1.0% | 8.6% |
+  | 64 | 0.0% | 0.999 | 0.1% | 0.9991 | 0.2% | 8.6% |
+
+- **Probe overhead (`overhead.md`; quote no eBPF number without it):** ITL mean +0.0% at
+  C=16 and C=64; ttft/ttfb p50 −7.5%/−16.7% at C=1 (sub-millisecond run-to-run noise — the
+  attached run was *faster*), +2.5% at C=64. Tail deltas (ttft p90 −58.8% at C=4) are
+  single-run tail noise. No probe cost distinguishable from noise at any C at these event
+  rates (~9.2k sends at C=64).
+- **Verdict per the finalized criteria:** ITL (framing-symmetric) — **confirmed at every
+  C** (median 0.1%, r ≥ 0.9987; error flat across concurrency — the opposite of the
+  degradation criterion). TTFB — confirmed at C=4/16/64. At C=1 the write-origin median is
+  **10.1%**, exceeding the 10% bar by 0.1pp. Cause, diagnosed from the same data: the
+  client's TTFB clock starts at its socket write, the probe's at the server's read — the
+  write→read interval (p50 51 µs at C=1 here; 17–161 µs observed in the smokes) is inside
+  the client's number and invisible to the probe; on ~1 ms idle-server TTFBs that fixed
+  path cost is ~10%, and it vanishes as TTFB grows. Same-interval comparison (client
+  origin moved to the probe's r0 — both clocks join), computed over the same collected
+  data: **5.9% / 4.9% / 0.0% / 0.0%**, r 0.956 / 0.910 / 1.000 / 1.000 — under the bar at
+  every C. Which variant is *the* metric is an author call; both are reported here so
+  nothing is hidden.
+- **Emergent findings (arguably worth more than the verdict):**
+  - **Under load, the raw TTFT metric heals itself.** At C=1, probe (t0−r0) vs client
+    first-token is hopeless (76.8%) — headers precede tokens. At C=16/64 it is 1.0%/0.2%:
+    with slots contended the header flush waits for slot/task start and rides with the
+    first token (mechanism [INFERENCE], consistent with the TTFB≈TTFT convergence), so
+    first-token TTFT becomes externally recoverable exactly when it matters most.
+  - **Queueing is externally visible as a TTFB staircase.** At C=16, TTFB quantizes at
+    ~130 ms — one request-duration per queue wave. Across the sweep (attached runs), TTFT
+    p50 goes 3.7 ms → 6.8 ms → 374 ms → 1.97 s (532×) while ITL mean goes 2.7 → 3.9 ms
+    (+44%): Phase 1.4's claim (TTFT degrades, ITL stays flat) is measured, and the
+    prefill/decode asymmetry is visible from `tcp_sendmsg` timing alone.
+  - Framing is 4 extra sends per connection regardless of length (68/64 at 64 tokens,
+    36/32 at 32) — the sends/tokens ratios 1.0625 and 1.125 are both fully explained.
+- **Next:** author adjudicates the TTFB origin variant → H2 status final; then Phase 2
+  (needs `bcc-tools`, an install = author call) or Phase 3 (CUDA uprobes).
+
 ## 2026-10-10 — Saturn session: inventory regenerated, ttft.bt first run — TTFT-definition finding
 
 - **Context:** first probe session on saturn (Linux 7.0.0-38-generic, NVIDIA driver 595.99.02,

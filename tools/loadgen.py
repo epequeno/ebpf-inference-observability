@@ -2,7 +2,11 @@
 """Synthetic OpenAI-compatible streaming load for the server under observation.
 
 Records client-side ground truth for H2 (Phase 1.3): TTFT = time from request off
-the socket to first token at the socket read; ITL = inter-token arrival gaps.
+the socket to first token at the socket read; ITL = inter-token arrival gaps;
+ttfb_s = first response byte of any kind (the headers — the client-side mirror
+of the probe's first-send timestamp); end_s = arrival of 'data: [DONE]' (or
+stream end) — together they form the framing-symmetric response span that
+tools/phase1-validate.py compares against the probe's (t0, last) span.
 
 The design requires ground truth be measured at the client's *socket read*, not at
 the HTTP library's iterator (H2 caveat). So we bypass httpx/aiohttp and read the
@@ -49,13 +53,19 @@ class TokenTimedOut(Exception):
 
 
 async def read_streaming_response(reader, timeout, sock_start):
-    """Socket-level SSE reader. Returns (first_token_mono, [token_mono...], raw_events).
+    """Socket-level SSE reader. Returns (first_token, [token...], first_byte, done).
 
-    Timestamps are monotonic seconds since sock_start. 'data: [DONE]' ends the
-    stream; the server may also end with a single JSON line (non-stream fallback).
+    Timestamps are monotonic seconds since sock_start. first_byte is the first
+    line of ANY kind — the response headers for SSE, i.e. the client-side mirror
+    of the probe's first-send timestamp; done is the arrival of 'data: [DONE]'
+    (or stream end if the server never sends it). 'data: [DONE]' ends the
+    stream; the server may also end with a single JSON line (non-stream
+    fallback).
     """
     first = None
     tokens = []
+    first_byte = None
+    done = None
     deadline = asyncio.get_running_loop().time() + timeout
     while True:
         remaining = deadline - asyncio.get_running_loop().time()
@@ -64,11 +74,15 @@ async def read_streaming_response(reader, timeout, sock_start):
         line = await asyncio.wait_for(reader.readline(), remaining)
         if not line:
             break
+        now = asyncio.get_running_loop().time() - sock_start
+        if first_byte is None:
+            first_byte = now
         text = line.decode("utf-8", "replace").strip()
         if not text.startswith("data:"):
             continue
         event = text[5:].strip()
         if event == "[DONE]":
+            done = now
             break
         try:
             obj = json.loads(event)
@@ -77,11 +91,12 @@ async def read_streaming_response(reader, timeout, sock_start):
         piece = obj.get("content", "")
         if not piece:
             continue
-        now = asyncio.get_running_loop().time() - sock_start
         if first is None:
             first = now
         tokens.append(now)
-    return first, tokens
+    if done is None:
+        done = asyncio.get_running_loop().time() - sock_start
+    return first, tokens, first_byte, done
 
 
 async def one_request(args, idx):
@@ -105,7 +120,7 @@ async def one_request(args, idx):
         w.write(req + body)
         await w.drain()
         sent_at = asyncio.get_running_loop().time() - sock_start
-        first, tokens = await read_streaming_response(r, args.timeout, sock_start)
+        first, tokens, first_byte, done = await read_streaming_response(r, args.timeout, sock_start)
         w.close()
         await w.wait_closed()
     except (OSError, asyncio.TimeoutError, TokenTimedOut) as exc:
@@ -120,6 +135,8 @@ async def one_request(args, idx):
         "abs_t0_s": sock_start,  # CLOCK_MONOTONIC origin of this record's times;
                                  # joins to kernel bpftrace nsecs (same clock)
         "ttft_s": ttft,
+        "ttfb_s": first_byte,  # first response byte (headers), rel. to abs_t0_s
+        "end_s": done,         # 'data: [DONE]' (or stream end), rel. to abs_t0_s
         "n_tokens": len(tokens),
         "itl_s": itls,
         "duration_s": (tokens[-1] if tokens else None),
@@ -143,6 +160,7 @@ def summary(records):
     failed = [r for r in records if not r.get("ok")]
     ttft = [r["ttft_s"] for r in ok if r["ttft_s"] is not None]
     itl = [x for r in ok for x in r["itl_s"]]
+    ttfb = [r["ttfb_s"] for r in ok if r.get("ttfb_s") is not None]
 
     def pct(vals, q):
         return round(statistics.quantiles(sorted(vals), n=20)[int(q * 20) - 1], 4) if vals else None
@@ -152,6 +170,7 @@ def summary(records):
         "failed": len(failed),
         "ttft_s_p50": pct(ttft, 0.5),
         "ttft_s_p90": pct(ttft, 0.9),
+        "ttfb_s_p50": pct(ttfb, 0.5),
         "itl_s_mean": round(statistics.mean(itl), 4) if itl else None,
         "itl_s_p50": pct(itl, 0.5),
         "tokens_total": sum(r["n_tokens"] for r in ok),
