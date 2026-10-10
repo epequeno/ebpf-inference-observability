@@ -91,11 +91,15 @@ Rules for work on this box:
 | Server | `llama.cpp` first (simpler; mmap loading visible), then `vLLM` |
 | Load generation | a small Python asyncio client that records TTFT/ITL as ground truth |
 
-## Open questions blocked on the inventory
+## Open questions blocked on the inventory — answered 2026-10-10
 
-1. Is the kernel lockdown-free and BTF-enabled? *(Hard blocker if not.)*
-2. NVIDIA or not, and how much VRAM? *(Decides Phase 3 and the CPU/GPU split.)*
-3. Are `libcuda.so`'s launch symbols resolvable, and at what names? *(Decides how much time
-   Phase 3 burns on symbol discovery.)*
-4. Is there enough disk for a 1–3B model (a few GB) plus builds?
-5. Is the toolchain already present, or does 0a begin with package installs?
+1. **Lockdown-free and BTF-enabled?** BTF present; SecureBoot enabled but probes attach and
+   fire (verified with a live `tcp_sendmsg` kprobe). Not a blocker.
+2. **NVIDIA? How much VRAM?** RTX 4070 Ti SUPER, 16 GiB → Phase 3 as designed; GPU preferred
+   for all phases (Policy: prefer GPU when suitable).
+3. **`cuLaunchKernel` resolvable?** Yes — in both `libcuda.so` and `libcuda.so.1`, with
+   `cuLaunchKernelEx`, `cuGraphLaunch`, `cuMemAlloc*`/`cuMemFree*` (full list in
+   `inventory/report.md` §4).
+4. **Disk for a 1–3B model plus builds?** Yes — 1.7 TiB free; model (1.1 GB) is downloaded.
+5. **Toolchain present?** bpftrace/bpftool were; now gcc 15, clang 21, nvcc 12.4, cmake 4.2,
+   ninja, git-lfs installed (author-approved) and llama.cpp 0.6.0-dev is built with CUDA.

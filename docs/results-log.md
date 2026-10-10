@@ -38,6 +38,34 @@ Rules:
   disk; huggingface.co reachable (HTTP 200). CPU: i9-14900KF, 32 cores, 30 GiB RAM.
 - **Phase 0b note:** GPU-in-container probe not run (needs a local image via `PROBE_IMAGE`),
   but nvidia-container-toolkit 1.20.1 present and the kernel module is loaded.
+- **Toolchain installed (author-approved 2026-10-10):** gcc 15.2, clang 21.1.8, cmake 4.2.3,
+  ninja, git-lfs, `nvidia-cuda-toolkit` (nvcc 12.4.131). Driver 595.99.02 supports CUDA 13.2,
+  so 12.4-built binaries run fine.
+- **llama.cpp:** clone `1e6f04a` (2026-10-09) at `~/code/llama.cpp`, built with
+  `-DGGML_CUDA=ON`, clang 21.1.8, CMAKE_CUDA_ARCHITECTURES=89-real (Ada 8.9).
+- **Model:** `Qwen/Qwen2.5-1.5B-Instruct-GGUF` `qwen2.5-1.5b-instruct-q4_k_m.gguf` (1.1 GB) at
+  `~/models/`, sha256 `6a1a2eb6…9407e`.
+- **Build gotcha:** llama.cpp's default C compiler drew gcc 15, which rejects a clang-only
+  flag (`-Wunreachable-code-return`) → hard error. Fixed by configuring `CC=clang CXX=clang++`.
+  Second gotcha: a stale `CMakeCache` made a later reconfigure silently skip the CUDA backend;
+  deleting `build/` and reconfiguring fixed it. Watch both on rebuilds.
+- **Load generator written:** `tools/loadgen.py` — stdlib-only asyncio client that reads the
+  raw socket (per H2's buffering caveat), records per-token arrival timestamps, and emits
+  per-request TTFT/ITL ground truth as JSONL.
+- **Server running (service `llama-server`):** `llama-server` on `127.0.0.1:8080`, Qwen2.5-1.5B
+  Q4_K_M, `-ngl 99`, fully on GPU (1358 MiB VRAM, pid 17305 at smoke time, ctx 4096, 4 slots).
+  Loadgen at rest: 3/3 ok — TTFT p50 ≈ 15 ms, ITL mean ≈ 3.4 ms (GPU decode, not a measured
+  result — smoke). NOTE: the managed-service `ready` regex did not match
+  "listening on http://127.0.0.1:8080" within 120 s; the server was up anyway. On restarts use
+  `llama_server: listening` as the readiness regex.
+- **Probe-vs-traffic smoke (Phase 0a goal met):** bpftrace `kprobe:tcp_sendmsg /pid == <server>/`
+  attached during an 8-request stream; emitted per-event timestamps and counted 288 server
+  `tcp_sendmsg` calls vs 256 client tokens (+~32 framing/extra sends, ≈1:1 token/send). No
+  latency claim: probe overhead not yet measured (design requirement, Phase 1.3).
+- **Bugs found and fixed this session:** (1) loadgen crashed after the first successful stream —
+  `r.close()` called on the `StreamReader` (no such method); fixed to `w.close()` +
+  `await w.wait_closed()`. (2) bpftrace 0.25.0 renamed `lquantize` → `lhist`, and it is
+  `lhist(v, min, max, step)` — four args, not three with (min, step).
 
 ## 2026-10-09 — Target host decided; repo scaffolded
 

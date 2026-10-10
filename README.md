@@ -30,16 +30,15 @@ asserted.
 
 ## Next action
 
-Run the host inventory on the target host. It is read-only and installs nothing:
+The host inventory is **done and committed** — `inventory/report.md` (regenerate anytime with
+`sudo ./tools/host-inventory.sh > inventory/report.md`; it is read-only and installs nothing).
+Its end-of-report **readiness verdict** gates the approach; see `docs/environment.md`.
 
-```bash
-sudo ./tools/host-inventory.sh > inventory/report.md
-git add inventory/report.md && git commit -m "Add host inventory" && git push
-```
-
-`sudo` is optional but adds the lock-down, tracefs and `dmesg` checks. The report ends with a
-**readiness verdict**; three of its answers can invalidate the approach outright (missing BTF,
-kernel lock-down, no NVIDIA GPU for Phase 3), so it runs before any code is written.
+Phase 0a is in progress: llama.cpp is built (CUDA) and serving Qwen2.5-1.5B on the target host,
+and `tools/loadgen.py` produces TTFT/ITL ground truth. The next milestone is **Phase 1**
+(`docs/design.md`): per-connection TTFT/ITL from `tcp_sendmsg` timestamps, validated against
+that ground truth, with the probe's own overhead measured (attached vs detached) before any
+number is quoted.
 
 ## The shape of the work
 
@@ -73,6 +72,7 @@ docs/
   provenance.md           # what came from the private vault vs. what was added later
 tools/
   host-inventory.sh       # read-only host reconnaissance -> markdown report
+  loadgen.py              # asyncio streaming load + TTFT/ITL ground truth (JSONL)
 inventory/                # collected host reports
 ```
 
