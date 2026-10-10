@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# host-inventory.sh — read-only reconnaissance for the ebpf-inference-observability
-# project. Changes nothing, installs nothing.
+# host-inventory.sh — read-only host capability reconnaissance. Changes nothing,
+# installs nothing.
+#
+# Shared by two projects that run on the same host, so one run answers both:
+#   ebpf-inference-observability  — BTF, kprobes/uprobes, tracepoints, CUDA symbols
+#   full-stack-serving            — container runtime, k3s/helm, GPU-in-container, IaC
+#
+# The report is one document; read the sections your project needs.
 #
 #   ./tools/host-inventory.sh                    # print to stdout
 #   ./tools/host-inventory.sh > inventory/report.md
@@ -24,6 +30,13 @@ run() { # run a command, print its output indented, tolerate failure
   printf '```\n%s\n```\n' "${out:-<no output>}"
 }
 exist() { [ -e "$1" ] && echo "yes" || echo "**no**"; }
+modstate() { # is a kernel module loaded? '?' where lsmod is unavailable (e.g. macOS)
+  if have lsmod; then
+    lsmod | awk -v m="$1" '$1 == m { print "loaded"; found = 1 } END { if (!found) print "not loaded" }'
+  else
+    echo '? (lsmod absent)'
+  fi
+}
 
 printf '# Host inventory — %s\n\n' "$(hostname 2>/dev/null || echo unknown)"
 printf 'Collected: %s  ·  via `%s`  ·  root: %s\n' \
@@ -168,15 +181,44 @@ echo '```'
 find ~ /opt /srv -maxdepth 4 \( -name '*.gguf' -o -name '*.safetensors' \) 2>/dev/null | head -10 || echo '<none found>'
 echo '```'
 
-# ---------------------------------------------------------------- 7. network
-sec '7. Network'
+# ------------------------------------- 7. Kubernetes / serving prerequisites
+sec '7. Kubernetes and serving prerequisites'
+# NB: `cmd | head -1 || echo absent` is wrong — the pipeline's status is head's, so the
+# fallback never fires and the row renders empty. Gate on `have` (or on the path) instead.
+ver() { have "$1" && "$@" 2>/dev/null | head -1 || echo absent; }
+kv 'container runtime' "$(docker --version 2>/dev/null || echo 'docker absent')"
+kv 'containerd'        "$(ver containerd --version)"
+kv 'podman'            "$(podman --version 2>/dev/null || echo absent)"
+kv 'kubectl'           "$(have kubectl && kubectl version --client 2>/dev/null | head -1 | sed 's/^[^:]*: *//' || echo absent)"
+kv 'k3s'               "$(ver k3s --version)"
+kv 'kind'              "$(kind version 2>/dev/null || echo absent)"
+kv 'helm'              "$(helm version --short 2>/dev/null || echo absent)"
+kv 'terraform'         "$(ver terraform version)"
+kv 'opentofu'          "$(ver tofu version)"
+kv 'pulumi'            "$(pulumi version 2>/dev/null || echo absent)"
+kv 'argocd'            "$(have argocd && argocd version --client --short 2>/dev/null | head -1 || echo absent)"
+kv 'aws cli'           "$(have aws && aws --version 2>&1 | head -1 || echo absent)"
+kv 'nvidia-container-toolkit' "$( if have nvidia-smi; then (have nvidia-ctk && nvidia-ctk --version 2>/dev/null | head -1) || echo '**absent — a GPU will not be visible inside containers**'; else echo 'no GPU on this host'; fi )"
+kv 'nvidia kernel module' "$(modstate nvidia)"
+kv 'cgroup version'    "$( [ -e /sys/fs/cgroup ] && stat -fc %T /sys/fs/cgroup 2>/dev/null | sed 's/tmpfs/cgroup v1/; s/cgroup2fs/cgroup v2/' || echo '? (no /sys/fs/cgroup)')"
+kv 'swap'              "$(have free && free -h 2>/dev/null | awk '/^Swap:/{print $2}' || echo '?')  (kubelet wants swap off)"
+kv 'br_netfilter'      "$(modstate br_netfilter)  (k8s prerequisite)"
+kv 'overlay'           "$(modstate overlay)  (k8s prerequisite)"
+kv 'iptables'          "$(iptables --version 2>/dev/null || echo absent)"
+kv 'firewall'          "$( (have ufw && ufw status 2>/dev/null | head -1) || (have firewall-cmd && firewall-cmd --state 2>/dev/null) || echo 'none detected')"
+kv 'k8s API port 6443' "$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ':6443' && echo 'listening' || echo 'not listening')"
+echo '> L0 needs a container runtime plus a GPU the driver can see. L1 needs k3s + kubectl.'
+echo '> L5 needs terraform (or equivalent) plus a second node. Fargate cannot host the GPU node.'
+
+# ---------------------------------------------------------------- 8. network
+sec '8. Network'
 kv 'hostname -I' "$(hostname -I 2>/dev/null || echo '?')"
 kv 'default route' "$(ip route show default 2>/dev/null | head -1 || echo '?')"
 kv 'internet reachable' "$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 https://huggingface.co 2>/dev/null || echo 'no (blocked? offline?)')"
 kv 'listening ports' "$( (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | awk 'NR>1{print $4}' | head -8 | tr '\n' ' ')"
 
-# ------------------------------------------------------------ 8. root-only
-sec '8. Root-only checks'
+# ------------------------------------------------------------ 9. root-only
+sec '9. Root-only checks'
 if [ -n "$SUDO" ]; then
   kv 'lockdown'        "$(cat /sys/kernel/security/lockdown 2>/dev/null || echo absent)"
   kv 'dmesg bpf lines' "$(dmesg 2>/dev/null | grep -ic bpf)"
@@ -185,8 +227,8 @@ else
   echo 'Not root — re-run with `sudo` for: lockdown state, tracefs contents, dmesg.'
 fi
 
-# --------------------------------------------------------------- 9. verdict
-sec '9. Readiness verdict'
+# --------------------------------------------------------------- 10. verdict
+sec '10. Readiness verdict'
 
 btf=$([ -e /sys/kernel/btf/vmlinux ] && echo yes || echo no)
 tracefs=$([ -e /sys/kernel/tracing/kprobe_events ] && echo yes || echo no)
@@ -210,6 +252,24 @@ if have nvidia-smi; then
   fi
 else
   kv 'GPU' 'none detected — Phase 3 needs an NVIDIA GPU; Phases 1/2/4 still work on CPU'
+fi
+
+echo
+echo '**Serving-stack readiness** (full-stack-serving levels):'
+crt=no; { have docker || have containerd || have podman; } && crt=yes
+gpu=no; have nvidia-smi && gpu=yes
+ctk=no; have nvidia-ctk && ctk=yes
+kv 'L0 (container + engine)' "$( [ "$crt" = yes ] && echo ready || echo '**NO container runtime**' )"
+kv 'L1 (k3s + kubectl)' "$( if have k3s && have kubectl; then echo ready; else echo "no — k3s:$(have k3s && echo yes || echo no) kubectl:$(have kubectl && echo yes || echo no)"; fi )"
+kv 'L2 (routing / Gateway API)' "$( if have kubectl && have helm; then echo 'helm present — installable'; else echo 'needs kubectl + helm'; fi )"
+kv 'L3 (autoscaling / KEDA)' "$( have helm && echo 'helm present — installable' || echo 'needs helm' )"
+kv 'L5 (cloud IaC)' "$( if have terraform || have tofu || have pulumi; then echo ready; else echo 'no IaC tool found'; fi )"
+if [ "$gpu" = yes ] && [ "$ctk" = no ]; then
+  kv 'GPU in containers' '**driver present, nvidia-container-toolkit missing — k8s will not see the GPU**'
+elif [ "$gpu" = yes ]; then
+  kv 'GPU in containers' 'driver + toolkit present'
+else
+  kv 'GPU in containers' 'no NVIDIA GPU — L0 runs CPU-only; L5 needs a cloud GPU node'
 fi
 
 printf '\n---\n_Generated by tools/host-inventory.sh. Read-only: nothing on this host was modified._\n'
