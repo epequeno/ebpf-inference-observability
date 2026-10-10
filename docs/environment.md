@@ -19,6 +19,12 @@ probe runs on the Linux box.
 `tools/host-inventory.sh` is read-only and installs nothing. Run it on the target host and
 commit the output:
 
+> **This is the canonical copy.** The same script is vendored by the `full-stack-serving`
+> project, because both run on this host and two scripts would eventually disagree about the
+> same machine. Its sections 7 and 10 cover serving-stack prerequisites (container runtime,
+> k3s, helm, terraform, GPU-in-container) that this project does not need — ignore them. Edit
+> the script **here**; the other copy is refreshed from this one.
+
 ```bash
 sudo ./tools/host-inventory.sh > inventory/report.md
 git add inventory/report.md && git commit -m "Add host inventory" && git push
