@@ -8,6 +8,10 @@ The design requires ground truth be measured at the client's *socket read*, not 
 the HTTP library's iterator (H2 caveat). So we bypass httpx/aiohttp and read the
 raw HTTP response ourselves via asyncio streams.
 
+Each record also carries abs_t0_s: the absolute CLOCK_MONOTONIC timestamp of
+that request's clock origin, so records join to kernel-side timestamps (bpftrace
+nsecs — same clock since boot). Used by tools/phase1-validate.py.
+
 Usage:
     python3 tools/loadgen.py --concurrency 4 --requests 32 --max-tokens 64 \\
         --out /tmp/ground-truth.jsonl --prompt "Explain eBPF in one paragraph."
@@ -113,6 +117,8 @@ async def one_request(args, idx):
         "index": idx,
         "ok": True,
         "sent_at": sent_at,
+        "abs_t0_s": sock_start,  # CLOCK_MONOTONIC origin of this record's times;
+                                 # joins to kernel bpftrace nsecs (same clock)
         "ttft_s": ttft,
         "n_tokens": len(tokens),
         "itl_s": itls,

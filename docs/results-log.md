@@ -15,6 +15,82 @@ Rules:
 - If a hypothesis is refuted, say so plainly and update the status table in `hypotheses.md`.
 
 ---
+## 2026-10-10 — Phase 1 tooling authored on the Mac (no probe work possible here)
+
+- **Context:** bpftrace does not exist on macOS, so nothing below has run against a real
+  kernel yet. Everything is authored and checked as far as the Mac allows (`bash -n`,
+  `py_compile`, and an end-to-end fixture test of the validator against a dummy SSE server);
+  the first smoke happens on saturn.
+- **`tools/ttft.bt` — the Phase 1 probe (tests H2).** kprobes on `tcp_recvmsg`,
+  `tcp_sendmsg`, `tcp_close`, filtered to the server pid (`$1`). Per-connection state lives
+  in maps keyed by `struct sock*`: `@r0` (first read ≈ request arrival), `@t0` (first send),
+  `@last`, `@nsends`, `@bytes`. Aggregation stays in-kernel — TTFT/ITL feed `lhist` maps
+  (bpftrace 0.25: `lhist(v, min, max, step)`); user space receives **one `CONN` line per
+  closed connection** (request granularity, not token granularity) plus the exit
+  histograms. Positional args (`arg0`/`arg2`) instead of BTF param names, for
+  portability. TTFT_probe = t0 − r0; mean ITL_probe = (last − t0)/(nsends − 1).
+- **`tools/phase1-sweep.sh` — attached-vs-detached sweep.** Per concurrency C (default
+  1 4 16 64): warmup (unmeasured) → detached baseline → probe attached → identical run →
+  SIGINT (exit histograms). Writes `results/phase1/<UTC>/`: `meta.txt` (kernel, driver,
+  server cmdline, bpftrace version, git describe, caches-not-dropped statement), per-C
+  `detached.jsonl` / `attached.jsonl` / `probe.txt`, and `overhead.md`. Refuses to run
+  without root or a live `llama-server`, and verifies the probe actually attached before
+  the attached run.
+- **`tools/phase1-validate.py` — H2 metrics + probe cost.** `--mode match` pairs each
+  ground-truth record with the `CONN` line whose first-read time is nearest the client's
+  write time, then reports per-pair TTFT/ITL, median absolute relative error, Pearson r,
+  and the send/token ratio. `--mode overhead` prints the attached-vs-detached summary
+  delta per concurrency. The H2 tolerances it echoes (10% / 0.9) are placeholders —
+  **the author finalizes them before the first measurement.**
+- **`tools/loadgen.py` gained one field: `abs_t0_s`** — the absolute CLOCK_MONOTONIC origin
+  of each request's timestamps. bpftrace `nsecs` and asyncio `loop.time()` are both
+  CLOCK_MONOTONIC-since-boot on the same host, so client records and kernel `CONN` lines
+  join without clock conversion. Verified live against a dummy SSE server on the Mac
+  (4/4 ok, 32 tokens/request, `abs_t0_s` in the monotonic domain).
+- **Send/token bias (affects the H2 error budget):** the Phase 0a smoke saw 288 server
+  sends vs 256 client tokens (≈1.125 sends/token — SSE framing, `data: [DONE]`, headers).
+  Per-connection *mean* inter-send time is therefore biased low by roughly
+  (n_tokens−1)/(n_sends−1) ≈ 0.89 before any measurement error. The validator reports the
+  per-pair ratio so this stays visible; the fixture test reproduces it exactly (11.4% ITL
+  error at ratio 1.125, TTFT error 2.0%).
+- **Date-label convention fixed:** log dates are the authoring Mac's local time (UTC−5).
+  The former 2026-10-10 labels were UTC artifacts (inventory collected
+  2026-10-10T03:26:40Z = 2026-10-09 22:26 local, matching git) and broke this file's
+  newest-first order. Relabeled here and in `docs/environment.md`; `inventory/report.md`
+  keeps its explicit UTC timestamp.
+- **Known risks for the first smoke (saturn):** (1) positional args assume
+  `tcp_sendmsg(sk, msg, size)` / `tcp_recvmsg(sk, …)` / `tcp_close(sk, …)` — verify with
+  `sudo bpftrace -l 'kprobe:tcp_*'`; `tcp_close` was not in the inventory's kallsyms
+  check. (2) `delete(@m[k])` may print a deprecation warning on 0.25 — cosmetic;
+  `delete(@m, k)` is the newer spelling if it ever hard-errors. (3) `CONN` lines only
+  print when `tcp_close` runs in server context — RST-orphaned sockets would leak map
+  entries (harmless within a run; fresh bpftrace per sweep step). (4) `pid` builtin is
+  tgid — all server threads match, intended.
+
+### Saturn runbook (supersedes the list in the 2026-10-09 entry below)
+
+1. **Regenerate the committed inventory** — still pending; it predates the toolchain
+   install and the script fixes:
+   `sudo ./tools/host-inventory.sh > inventory/report.md`, commit, push.
+2. **Author decision (blocks measurement):** finalize H2 tolerances in
+   `docs/hypotheses.md` — 10% median-error / 0.9 correlation are flagged placeholders;
+   decide with the send/token bias above in view.
+3. **Smoke the probe** (first-ever run of `ttft.bt`): verify symbols, then
+   `sudo bpftrace tools/ttft.bt $(pgrep -x llama-server) | tee /tmp/probe-smoke.txt`
+   alongside one `tools/loadgen.py --concurrency 1 --requests 2 --out /tmp/smoke.jsonl`;
+   expect ~2 `CONN` lines + exit histograms.
+4. **Run the sweep:** `sudo ./tools/phase1-sweep.sh` (defaults 1 4 16 64; requests per C
+   default max(16, 4C)). Outputs are root-owned.
+5. **Validate:** per C, `python3 tools/phase1-validate.py --mode match --probe
+   results/phase1/<ts>/c$C/probe.txt --ground-truth .../c$C/attached.jsonl`; read
+   `overhead.md` — **quote no eBPF-derived number without it**.
+6. **Log + decide:** results entry here (newest first; kernel/driver/server versions,
+   caches-not-dropped statement, CUDA-graphs state), set H2 status in
+   `docs/hypotheses.md`, commit `results/`.
+
+- **Deliberately not done (author calls):** `bcc-tools` install (Phase 2), vLLM
+  introduction, any change to the server binary or its flags.
+
 ## 2026-10-09 — Doc/code cleanup from Mac (no probe work)
 
 - **Reviewed the repo from the authoring Mac** (cannot run probes here). Fixed four
@@ -40,31 +116,11 @@ Rules:
 
 ### Next steps on saturn
 
-1. **Regenerate the committed inventory** — `inventory/report.md` still has the old stale
-   output (lockdown verdict, pre-install toolchain, broken virtualisation row). The script is
-   fixed; re-run it:
-   ```bash
-   sudo ./tools/host-inventory.sh > inventory/report.md
-   git add inventory/report.md && git commit -m "Regenerate host inventory (fix lockdown verdict + virtualisation)" && git push
-   ```
-2. **Phase 1 — TTFT/ITL from `tcp_sendmsg`** (`docs/design.md` §Phase 1, tests H2). The
-   loadgen, server, and probe-attach are all working. Steps:
-   - Write a bpftrace script that kprobes `tcp_sendmsg` filtered to the `llama-server` PID,
-     timestamps each send per connection (using `args->sk` or socket address as the key), and
-     emits per-connection send-timestamp lists. **Aggregate in-kernel** — use a BPF map keyed
-     by socket, not per-event prints.
-   - Run `tools/loadgen.py` at concurrency 1, then 4, 16, 64 against the server with the probe
-     attached. Save bpftrace output alongside the loadgen JSONL.
-   - **Measure probe overhead** (design requirement): run the same loadgen sweep with the probe
-     detached, compare TTFT/ITL. Report the delta before quoting any probe-derived number.
-   - **Validate H2:** compare eBPF-derived TTFT/ITL against loadgen ground truth. Falsification
-     threshold: median absolute error > 10%, or correlation < 0.9. These are placeholders —
-     **set final tolerances in `docs/hypotheses.md` before the first measurement.**
-   - Log results in this file (newest at top). Update the H2 status in `docs/hypotheses.md`.
-3. **Set H2 tolerances** — the 10% / 0.9 numbers in `docs/hypotheses.md` are flagged as
-   placeholders in `docs/provenance.md`. Decide and record final values before Phase 1.3.
+Superseded by the runbook in the 2026-10-10 entry above. Still-pending author actions:
+regenerate `inventory/report.md` (the committed copy predates the toolchain install and
+the script fixes) and finalize the H2 tolerances in `docs/hypotheses.md`.
 
-## 2026-10-10 — Host inventory + first probe attach (Phase 0a start)
+## 2026-10-09 — Host inventory + first probe attach (Phase 0a start)
 
 - **Ran `tools/host-inventory.sh` on the target host (saturn, Linux 7.0.0-38-generic,
   Ubuntu 26.04.1 LTS, x86_64).** Report committed to `inventory/report.md` and pushed.
@@ -86,7 +142,7 @@ Rules:
   disk; huggingface.co reachable (HTTP 200). CPU: i9-14900KF, 32 cores, 30 GiB RAM.
 - **Phase 0b note:** GPU-in-container probe not run (needs a local image via `PROBE_IMAGE`),
   but nvidia-container-toolkit 1.20.1 present and the kernel module is loaded.
-- **Toolchain installed (author-approved 2026-10-10):** gcc 15.2, clang 21.1.8, cmake 4.2.3,
+- **Toolchain installed (author-approved 2026-10-09):** gcc 15.2, clang 21.1.8, cmake 4.2.3,
   ninja, git-lfs, `nvidia-cuda-toolkit` (nvcc 12.4.131). Driver 595.99.02 supports CUDA 13.2,
   so 12.4-built binaries run fine.
 - **llama.cpp:** clone `1e6f04a` (2026-10-09) at `~/code/llama.cpp`, built with

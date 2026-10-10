@@ -150,7 +150,7 @@ that is a refutation of H2, not a promising direction.
 
 | Hypothesis | Status | Blocked on |
 |---|---|---|
-| H1 | not started | Phase 0a + 0b (GPU) |
-| H2 | not started | Phase 0a |
-| H3 | not started | Phase 0a |
+| H1 | not started | Phase 3 start (Phase 0a + 0b complete) |
+| H2 | tooling authored (`tools/ttft.bt`), never run | author-set tolerances + Phase 1 sweep on the target host |
+| H3 | not started | Phase 4 start (Phase 0a complete) |
 | H4 | not started | Phase 3.1 working |

@@ -34,18 +34,22 @@ which were added later — read it if you need to know how stable a particular c
 
 ## Current status and next action
 
-**Phase 0a is in progress.** The host inventory is done and committed (`inventory/report.md`,
-regenerate with `sudo ./tools/host-inventory.sh > inventory/report.md` — read-only, installs
-nothing). Its readiness verdict cleared the hard blockers: BTF present, kprobes attach and
-fire, `cuLaunchKernel` resolvable, NVIDIA RTX 4070 Ti SUPER with 16 GiB VRAM.
+**Phase 0a is complete** (goals met: eBPF toolchain installed, llama.cpp serving on the
+GPU, loadgen ground truth, probe attach verified). Housekeeping pending: regenerate the
+committed `inventory/report.md` — it predates the toolchain install and the script fixes
+(`sudo ./tools/host-inventory.sh > inventory/report.md` — read-only, installs nothing).
 
 llama.cpp 0.6.0-dev is built with CUDA and serving Qwen2.5-1.5B-Q4_K_M on the target host;
 `tools/loadgen.py` produces client-side TTFT/ITL ground truth. A `tcp_sendmsg` kprobe has
 already attached and fired over an 8-request stream (Phase 0a's probe-attach goal met).
 
-The next milestone is **Phase 1** (`docs/design.md`): per-connection TTFT/ITL from `tcp_sendmsg`
-timestamps, validated against that ground truth, with the probe's own overhead measured
-(attached vs detached) before any number is quoted.
+The next milestone is **Phase 1** (`docs/design.md`): per-connection TTFT/ITL from
+`tcp_sendmsg` timestamps, validated against that ground truth, with the probe's own
+overhead measured (attached vs detached) before any number is quoted. The tooling is
+authored — `tools/ttft.bt` (the probe), `tools/phase1-sweep.sh` (the sweep),
+`tools/phase1-validate.py` (H2 metrics + probe cost) — but **none of it has run**: bpftrace
+does not exist on macOS. First action on the target host: smoke `ttft.bt` at concurrency 1,
+then run the sweep. Runbook: top of `docs/results-log.md`.
 
 ## Rules
 

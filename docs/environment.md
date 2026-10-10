@@ -91,7 +91,7 @@ Rules for work on this box:
 | Server | `llama.cpp` first (simpler; mmap loading visible), then `vLLM` |
 | Load generation | a small Python asyncio client that records TTFT/ITL as ground truth |
 
-## Open questions blocked on the inventory — answered 2026-10-10
+## Open questions blocked on the inventory — answered 2026-10-09
 
 1. **Lockdown-free and BTF-enabled?** BTF present; SecureBoot enabled but probes attach and
    fire (verified with a live `tcp_sendmsg` kprobe). Not a blocker.

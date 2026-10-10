@@ -11,7 +11,7 @@ The project is also a structured path to learning both eBPF and inference-servin
 with each experiment designed to make one architectural claim empirically visible rather than
 asserted.
 
-> **Status: Phase 0a — environment reconnaissance. No experiments run.**
+> **Status: Phase 0a complete. Phase 1 tooling authored, untested — no eBPF on macOS.**
 > **Target host: the physical Linux box on the LAN** (it has the GPU; macOS cannot run eBPF).
 > This repo is **private**.
 
@@ -30,15 +30,18 @@ asserted.
 
 ## Next action
 
-The host inventory is **done and committed** — `inventory/report.md` (regenerate anytime with
-`sudo ./tools/host-inventory.sh > inventory/report.md`; it is read-only and installs nothing).
-Its end-of-report **readiness verdict** gates the approach; see `docs/environment.md`.
+The host inventory is committed but **stale** — it predates the toolchain install and the
+script fixes. Regenerate on the target host (`sudo ./tools/host-inventory.sh >
+inventory/report.md`; read-only, installs nothing) and commit.
 
-Phase 0a is in progress: llama.cpp is built (CUDA) and serving Qwen2.5-1.5B on the target host,
+Phase 0a is complete: llama.cpp is built (CUDA) and serving Qwen2.5-1.5B on the target host,
 and `tools/loadgen.py` produces TTFT/ITL ground truth. The next milestone is **Phase 1**
 (`docs/design.md`): per-connection TTFT/ITL from `tcp_sendmsg` timestamps, validated against
 that ground truth, with the probe's own overhead measured (attached vs detached) before any
-number is quoted.
+number is quoted. The tooling is authored — `tools/ttft.bt`, `tools/phase1-sweep.sh`,
+`tools/phase1-validate.py` — but has never run: bpftrace does not exist on macOS. First
+action on the target host: smoke `tools/ttft.bt`, then run the sweep. Runbook: top of
+`docs/results-log.md`.
 
 ## The shape of the work
 
@@ -73,7 +76,11 @@ docs/
 tools/
   host-inventory.sh       # read-only host reconnaissance -> markdown report
   loadgen.py              # asyncio streaming load + TTFT/ITL ground truth (JSONL)
+  ttft.bt                 # Phase 1 probe: per-connection TTFT/ITL from tcp_sendmsg
+  phase1-sweep.sh         # attached-vs-detached load sweep (probe-overhead requirement)
+  phase1-validate.py      # H2 validation: eBPF vs ground truth + probe cost
 inventory/                # collected host reports
+results/                  # sweep outputs (results/phase1/<UTC stamp>/), committed
 ```
 
 ## Why this is worth doing

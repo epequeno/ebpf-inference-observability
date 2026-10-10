@@ -1,0 +1,81 @@
+#!/usr/bin/env bpftrace
+/*
+ * Phase 1 probe (tests H2): per-connection TTFT / ITL from tcp_sendmsg.
+ *
+ * Usage:  sudo bpftrace tools/ttft.bt <llama-server-pid>
+ *
+ * Design (docs/design.md §Phase 1, docs/hypotheses.md §H2):
+ *   - filtered to the server pid ($1). `pid` is the tgid, so every server
+ *     thread matches — the whole process, nothing else
+ *   - per-connection state lives in maps keyed by struct sock* — no per-event
+ *     prints; aggregation stays in-kernel (lhist)
+ *   - user space gets ONE "CONN" line per closed connection (request
+ *     granularity, not token granularity), plus TTFT/ITL histograms at exit
+ *     (SIGINT / Ctrl-C).
+ *
+ * Argument positions (stable across kernels, unlike BTF param names):
+ *   int  tcp_sendmsg(struct sock *sk, struct msghdr *msg, size_t size)
+ *                                        arg0                      arg2
+ *   int  tcp_recvmsg(struct sock *sk, ...)                    arg0
+ *   void tcp_close(struct sock *sk, long timeout)             arg0
+ *
+ * CONN line (all times are nsecs, CLOCK_MONOTONIC since boot — same clock as
+ * tools/loadgen.py's abs_t0_s, so the two join without conversion; see
+ * tools/phase1-validate.py):
+ *   CONN <sk> <r0-first-read> <t0-first-send> <last-send> <nsends> <bytes>
+ * Derived per connection: TTFT = t0 - r0; mean ITL = (last - t0)/(nsends - 1).
+ *
+ * Known limits:
+ *   - the CONN line only prints if tcp_close runs in the server's context
+ *     (the normal HTTP close path). RST-orphaned sockets closed by a kernel
+ *     workqueue would leak their map entries — harmless within a run, and
+ *     each sweep step starts a fresh bpftrace.
+ *   - @r0 (first read) approximates request arrival; the server may read a
+ *     request in more than one syscall, so r0 is the *first* read.
+ *
+ * bpftrace 0.25 notes: lhist(v, min, max, step) takes FOUR args. If
+ * delete(@m[k]) ever hard-errors, delete(@m, k) is the newer spelling.
+ */
+
+// first read per socket ≈ request arrival
+kprobe:tcp_recvmsg
+/pid == $1/
+{
+	$sk = (uint64)arg0;
+	if (!@r0[$sk]) {
+		@r0[$sk] = nsecs;
+	}
+}
+
+// every send: first send anchors TTFT, later sends feed the ITL histogram
+kprobe:tcp_sendmsg
+/pid == $1/
+{
+	$sk = (uint64)arg0;
+
+	if (!@t0[$sk]) {
+		@t0[$sk] = nsecs;
+		@ttft_us = lhist((@t0[$sk] - @r0[$sk]) / 1000, 0, 100000, 1000);
+	} else {
+		@itl_us = lhist((nsecs - @last[$sk]) / 1000, 0, 50000, 500);
+	}
+	@last[$sk] = nsecs;
+	@nsends[$sk] = @nsends[$sk] + 1;
+	@bytes[$sk] = @bytes[$sk] + (uint64)arg2;
+}
+
+// one summary line per closed connection — request granularity
+kprobe:tcp_close
+/pid == $1/
+{
+	$sk = (uint64)arg0;
+	if (@r0[$sk]) {
+		printf("CONN %llu %llu %llu %llu %llu %llu\n",
+		       $sk, @r0[$sk], @t0[$sk], @last[$sk], @nsends[$sk], @bytes[$sk]);
+		delete(@r0[$sk]);
+		delete(@t0[$sk]);
+		delete(@last[$sk]);
+		delete(@nsends[$sk]);
+		delete(@bytes[$sk]);
+	}
+}
