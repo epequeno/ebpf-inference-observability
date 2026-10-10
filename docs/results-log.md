@@ -16,6 +16,63 @@ Rules:
 
 ---
 
+## 2026-10-10 — Phase 4 (memory system): faults at LOAD, not first inference — H3 refuted; llama.cpp prefaults by design
+
+- **Context:** server binary build-off/ (graphs OFF) for all runs; two serving configs:
+  `-ngl 99` (GPU, weights in VRAM) and `-ngl 0` (CPU, weights in file pages). Kernel
+  7.0.0-38-generic, bpftrace 0.25.0, THP `[madvise]` mode. **Page caches dropped**
+  (`sync` + `echo 3 > /proc/sys/vm/drop_caches`, MemFree ≈ 26 GB verified) before each
+  cold run — the pre-registered H3 confound control, executed. No other tenant touched
+  the model file. Probe: `tools/phase4-faults.bt` (exceptions:page_fault_user +
+  mmap/madvise census, in-kernel; attach before server start). Artifacts:
+  `results/phase4/20261010T201207Z/`.
+- **4.1 — load-time tracing:** the model is ONE lazy-looking mapping — mmap census shows
+  a single 1,050–1,075 MiB call among ~220 smaller mmaps — but the mapping is prefaulted
+  by design: GPU config shows `madvise(WILLNEED)` ×1 then `madvise(DONTNEED)` ×1 (plus
+  46× advice 102 — MADV_GUARD_INSTALL on ≥6.12 kernels [INFERENCE]); CPU config shows
+  ZERO madvise calls and the faulting happens inside `mmap(2)` itself via **MAP_POPULATE**
+  (`src/llama-mmap.cpp:493`, called as `init_mappings(true, …)` from
+  `src/llama-model.cpp:1840` — prefetch hardcoded ON).
+- **4.2 — the H3 test (fault storms, cold caches, first request vs steady):**
+
+  | config | total user faults | at load | first request | steady state | post-load RSS / RssFile |
+  |---|---|---|---|---|---|
+  | `-ngl 99` (GPU) | 54,676 | **49,189 (90%)** | 3,328 in 0.25 s (13.3k/s) | ≈2.6k/s | 550 MB / 270 MB |
+  | `-ngl 0` (CPU) | 72,138 | **70,526 (98%)** | 1,284 in 0.58 s (2.2k/s) | ≈0.2k/s | 1.58 GB / 1.22 GB |
+
+  - The GPU path is prefault → upload → **MADV_DONTNEED the file pages** (RssFile collapses
+    to 270 MB after the VRAM upload); the CPU path keeps all 1.22 GB resident.
+  - First inference is NOT a fault storm in either config: the residual excess vs steady
+    state (~5× rate, a few thousand faults, +19.5 MB RSS on the GPU config) is
+    tokenizer/sampling/buffer pages — an order of magnitude short of weight faulting, and
+    decaying into steady state.
+  - **H3 is REFUTED per its own falsification criterion 2: "faults appear at load time
+    for the mmap-based server too, meaning loading is not actually lazy and the warmup
+    explanation is wrong."** Exactly what happened, in BOTH serving configurations: the
+    classic first-inference-fault-storm story (true of older llama.cpp lore) has been
+    engineered away upstream — prefetch is hardcoded on. The warmup request's real cost
+    on this build is the CUDA-graph capture (Phase 3) plus this small non-weights residue.
+  - The prediction's eager-loading half (PyTorch/vLLM faults at load) remains untested —
+    that comparison waits for the vLLM introduction.
+- **4.3 — KV-cache growth:** ZERO `cuMemAlloc*` calls during a C=16, 16×512-token run;
+  VRAM static (1836→1838 MB); host RSS +144 MB = per-connection state, not KV. llama.cpp
+  pre-allocates pools at startup (Phase 3.3's three cudaMallocs), so **KV growth is
+  invisible in the allocation stream** — the design's "allocation and RSS patterns"
+  expectation holds for block-allocating engines (vLLM PagedAttention), not this server.
+- **4.4 — under pressure: NOT RUN.** Inducing host memory pressure deliberately on the
+  author's desktop-session box was not worth the risk without asking; deferred (the box
+  is not headless). H3's verdict does not depend on it.
+- **Verdict recorded:** H3 refuted (llama.cpp 0.6.0-dev, both configs; mechanism named
+  from source). **All four hypotheses now have verdicts: H1 refuted, H2 confirmed,
+  H3 refuted, H4 confirmed.** What survives across the project so far is the external
+  observability itself — network-derived TTFB/ITL (H2), the futex-metronome CPU side,
+  the graph-collapse signature, step cadence and batch amortization (H4) — while the
+  two "asymmetry" hypotheses (prefill/decode gaps, fault timing) failed because llama.cpp
+  0.6.0-dev has already engineered away the asymmetries H1/H3 expected to observe.
+  **Next:** vLLM introduction (serves H3's eager-loading comparison, H1's graphs test via
+  `--enforce-eager`, and the design's continuous-batching comparisons) or Phase 5
+  (multi-tenant/attribution, optional).
+
 ## 2026-10-10 — Phase 3 (CUDA uprobes): llama.cpp ships CUDA graphs; H1 refuted at the API level, H4 confirmed
 
 - **Context:** same host; kernel 7.0.0-38-generic, driver 595.99.02 (CUDA 13.2), bpftrace 0.25.0.

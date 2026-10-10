@@ -65,8 +65,21 @@ gap distributions overlap — the asymmetry lives in kernel size, invisible at t
 boundary), **H4 confirmed** (bursty arrivals → launch-idle windows tracking the
 spacing; continuous batching → 100% activity); graphs collapse the API launch stream
 566× and are worth ~12% ITL. Probe cost +0.0% ITL at 190k uprobe events/s.
-Next: Phase 4 (memory/page faults — H3, the last untested hypothesis) or vLLM
-introduction. Runbook: top of `docs/results-log.md`.
+**Phase 4 has also run** (2026-10-10, `results/phase4/20261010T201207Z/`): fault
+censuses under cold caches in both serving configs (-ngl 99 and -ngl 0) show faults
+concentrated at LOAD (90%/98%), not first inference — **H3 refuted** (loading is not
+lazy: MAP_POPULATE/MADV_WILLNEED prefetch is hardcoded ON in 0.6.0-dev); the warmup
+cost on this build is CUDA-graph capture, not weight faulting. KV growth is invisible
+in allocations (pools pre-allocated; zero cuMemAlloc under a 16×512-token C=16 run).
+**All four hypotheses now have verdicts: H1 refuted, H2 confirmed, H3 refuted, H4
+confirmed.** The refutations share one root: llama.cpp 0.6.0-dev has already
+engineered away the asymmetries H1/H3 expected to observe (graph replay collapses the
+launch stream; prefault collapses the fault timing). What survives is the external
+observability itself: TTFB/ITL from sockets, the futex-metronome CPU side, step cadence
+and batch amortization. Next: vLLM introduction (tests H3's eager-loading half, H1's
+graphs prediction via `--enforce-eager`, and the design's cross-engine comparisons —
+install is an author call) or Phase 5 (multi-tenant, optional). Runbook: top of
+`docs/results-log.md`.
 
 ## Rules
 

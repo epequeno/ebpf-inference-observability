@@ -1,0 +1,9 @@
+date_utc:           2026-10-10T20:12:07Z
+kernel:             7.0.0-38-generic
+bpftrace:           bpftrace v0.25.0
+server_binary:       ~/code/llama.cpp/build-off/bin/llama-server (GGML_CUDA_GRAPHS=OFF)
+configs:            A=-ngl 99 (GPU, cold caches), B=-ngl 0 (CPU, cold caches), E3=alloc-watch under C=16 load
+thp:                always [madvise] never
+page_caches_dropped: yes - sync + echo 3 > drop_caches before each cold run (H3 confound control; recorded per run)
+other_tenants:      none touching the model file (desktop idle of the GGUF)
+git:                22af2e9

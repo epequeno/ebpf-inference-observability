@@ -1,0 +1,171 @@
+Attached 4 probes
+attached - start the server; SIGINT prints the maps
+
+
+@fault_per10ms[3082502]: 1
+@fault_per10ms[3085353]: 1
+@fault_per10ms[3085348]: 1
+@fault_per10ms[3085351]: 1
+@fault_per10ms[3085415]: 1
+@fault_per10ms[3085419]: 1
+@fault_per10ms[3085417]: 1
+@fault_per10ms[3085354]: 1
+@fault_per10ms[3085375]: 1
+@fault_per10ms[3085376]: 1
+@fault_per10ms[3085389]: 1
+@fault_per10ms[3085318]: 1
+@fault_per10ms[3085350]: 1
+@fault_per10ms[3085367]: 1
+@fault_per10ms[3085358]: 1
+@fault_per10ms[3085317]: 1
+@fault_per10ms[3085321]: 1
+@fault_per10ms[3085410]: 1
+@fault_per10ms[3085315]: 1
+@fault_per10ms[3085412]: 1
+@fault_per10ms[3085371]: 1
+@fault_per10ms[3085414]: 1
+@fault_per10ms[3085397]: 1
+@fault_per10ms[3085394]: 1
+@fault_per10ms[3085319]: 1
+@fault_per10ms[3085416]: 1
+@fault_per10ms[3085323]: 1
+@fault_per10ms[3085396]: 1
+@fault_per10ms[3085347]: 1
+@fault_per10ms[3085377]: 1
+@fault_per10ms[3085316]: 1
+@fault_per10ms[3085356]: 1
+@fault_per10ms[3080905]: 1
+@fault_per10ms[3085373]: 1
+@fault_per10ms[3085395]: 1
+@fault_per10ms[3085313]: 1
+@fault_per10ms[3085352]: 1
+@fault_per10ms[3085369]: 1
+@fault_per10ms[3085408]: 1
+@fault_per10ms[3085374]: 1
+@fault_per10ms[3085392]: 2
+@fault_per10ms[3080900]: 3
+@fault_per10ms[3085339]: 3
+@fault_per10ms[3085420]: 3
+@fault_per10ms[3080903]: 3
+@fault_per10ms[3085400]: 3
+@fault_per10ms[3085364]: 3
+@fault_per10ms[3085312]: 4
+@fault_per10ms[3085324]: 4
+@fault_per10ms[3085301]: 4
+@fault_per10ms[3080984]: 6
+@fault_per10ms[3080992]: 6
+@fault_per10ms[3080902]: 9
+@fault_per10ms[3080928]: 10
+@fault_per10ms[3080915]: 10
+@fault_per10ms[3080893]: 14
+@fault_per10ms[3080929]: 17
+@fault_per10ms[3080886]: 18
+@fault_per10ms[3080916]: 21
+@fault_per10ms[3080918]: 23
+@fault_per10ms[3080906]: 24
+@fault_per10ms[3085300]: 28
+@fault_per10ms[3080866]: 32
+@fault_per10ms[3080920]: 38
+@fault_per10ms[3080899]: 40
+@fault_per10ms[3080930]: 61
+@fault_per10ms[3080917]: 65
+@fault_per10ms[3080901]: 82
+@fault_per10ms[3080870]: 106
+@fault_per10ms[3080867]: 120
+@fault_per10ms[3080997]: 127
+@fault_per10ms[3080885]: 152
+@fault_per10ms[3080871]: 178
+@fault_per10ms[3080908]: 262
+@fault_per10ms[3080884]: 311
+@fault_per10ms[3080925]: 329
+@fault_per10ms[3080993]: 331
+@fault_per10ms[3085304]: 345
+@fault_per10ms[3080868]: 366
+@fault_per10ms[3080869]: 371
+@fault_per10ms[3080872]: 451
+@fault_per10ms[3080898]: 491
+@fault_per10ms[3085338]: 527
+@fault_per10ms[3085399]: 528
+@fault_per10ms[3085359]: 528
+@fault_per10ms[3085379]: 532
+@fault_per10ms[3080873]: 535
+@fault_per10ms[3080909]: 563
+@fault_per10ms[3080883]: 842
+@fault_per10ms[3080926]: 1015
+@fault_per10ms[3080894]: 1187
+@fault_per10ms[3080927]: 1188
+@fault_per10ms[3080914]: 1192
+@fault_per10ms[3085303]: 1216
+@fault_per10ms[3080882]: 1316
+@fault_per10ms[3080875]: 1342
+@fault_per10ms[3080897]: 1346
+@fault_per10ms[3080907]: 1393
+@fault_per10ms[3080874]: 1395
+@fault_per10ms[3080876]: 1492
+@fault_per10ms[3080913]: 1525
+@fault_per10ms[3080895]: 1678
+@fault_per10ms[3080877]: 1734
+@fault_per10ms[3085302]: 1747
+@fault_per10ms[3080881]: 1826
+@fault_per10ms[3080878]: 1828
+@fault_per10ms[3080880]: 1908
+@fault_per10ms[3080879]: 1977
+@fault_per10ms[3080996]: 2052
+@fault_per10ms[3080910]: 2143
+@fault_per10ms[3080994]: 2201
+@fault_per10ms[3080911]: 2238
+@fault_per10ms[3080896]: 2790
+@fault_per10ms[3080912]: 3069
+@fault_per10ms[3080995]: 3307
+@faults: 54676
+@madvise[3]: 1
+@madvise[4]: 1
+@madvise[102]: 46
+@mmap: 229
+@mmap_len:
+[0, 25)              193 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+[25, 50)               1 |                                                    |
+[50, 75)              10 |@@                                                  |
+[75, 100)              2 |                                                    |
+[100, 125)             3 |                                                    |
+[125, 150)            11 |@@                                                  |
+[150, 175)             1 |                                                    |
+[175, 200)             1 |                                                    |
+[200, 225)             1 |                                                    |
+[225, 250)             0 |                                                    |
+[250, 275)             0 |                                                    |
+[275, 300)             0 |                                                    |
+[300, 325)             0 |                                                    |
+[325, 350)             0 |                                                    |
+[350, 375)             0 |                                                    |
+[375, 400)             0 |                                                    |
+[400, 425)             0 |                                                    |
+[425, 450)             0 |                                                    |
+[450, 475)             0 |                                                    |
+[475, 500)             2 |                                                    |
+[500, 525)             0 |                                                    |
+[525, 550)             0 |                                                    |
+[550, 575)             0 |                                                    |
+[575, 600)             0 |                                                    |
+[600, 625)             0 |                                                    |
+[625, 650)             0 |                                                    |
+[650, 675)             0 |                                                    |
+[675, 700)             0 |                                                    |
+[700, 725)             0 |                                                    |
+[725, 750)             0 |                                                    |
+[750, 775)             0 |                                                    |
+[775, 800)             0 |                                                    |
+[800, 825)             0 |                                                    |
+[825, 850)             0 |                                                    |
+[850, 875)             0 |                                                    |
+[875, 900)             0 |                                                    |
+[900, 925)             0 |                                                    |
+[925, 950)             0 |                                                    |
+[950, 975)             0 |                                                    |
+[975, 1000)            1 |                                                    |
+[1000, 1025)           0 |                                                    |
+[1025, 1050)           0 |                                                    |
+[1050, 1075)           1 |                                                    |
+[1075, 1100)           0 |                                                    |
+[1100, ...)            2 |                                                    |
+

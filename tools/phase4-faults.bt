@@ -1,0 +1,48 @@
+#!/usr/bin/env bpftrace
+/*
+ * Phase 4 probe (docs/design.md §Phase 4.1/4.2, hypothesis H3): page-fault
+ * census for the server — load-time tracing (mmap/madvise) plus the
+ * first-inference vs steady-state fault comparison. Attach BEFORE the server
+ * starts; all aggregation stays in-kernel.
+ *
+ * Usage:  sudo bpftrace tools/phase4-faults.bt
+ *
+ * Maps at exit (SIGINT):
+ *   @faults             user page faults in the server process
+ *   @fault_per10ms[b]   fault time series — absolute 10 ms buckets since boot,
+ *                       joins to loadgen abs_t0_s for phase classification
+ *                       (startup vs first request vs steady state)
+ *   @mmap               mmap(2) calls by the server
+ *   @mmap_len           mmap length histogram, 25 MiB buckets 0-1100
+ *                       (the 1.1 GB GGUF mapping should be unmistakable)
+ *   @madvise[advice]    madvise(2) calls by advice code
+ *
+ * Hook choice: tracepoint:exceptions:page_fault_user is the per-fault
+ * user-space hook (fields: address, ip, error_code); it fires in the faulting
+ * thread's context so the comm filter selects the server process. THP is in
+ * [madvise] mode on this host, so file-backed faults are 4K-granular here
+ * (recorded in the results log; readahead/fault-around still amortize faults,
+ * which is why RSS deltas are reported alongside fault counts).
+ */
+
+BEGIN { printf("attached - start the server; SIGINT prints the maps\n"); }
+
+tracepoint:exceptions:page_fault_user
+/comm == "llama-server"/
+{
+	@faults = count();
+	@fault_per10ms[nsecs / 10000000] = count();
+}
+
+tracepoint:syscalls:sys_enter_mmap
+/comm == "llama-server"/
+{
+	@mmap = count();
+	@mmap_len = lhist((uint64)args->len / 1048576, 0, 1100, 25);
+}
+
+tracepoint:syscalls:sys_enter_madvise
+/comm == "llama-server"/
+{
+	@madvise[args->behavior] = count();
+}
