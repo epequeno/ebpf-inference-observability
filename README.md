@@ -83,3 +83,8 @@ papers and benchmarks. The bridge — *"here is what continuous batching looks l
 `cuLaunchKernel` inter-arrival times, measured from outside the process"* — is the artifact this
 project is trying to produce. See `docs/design.md` for how it differs from nsys/ncu, DCGM,
 OpenTelemetry and py-spy.
+
+## License
+
+Apache-2.0, see [`LICENSE`](LICENSE). `tools/host-inventory.sh` is vendored by the sibling
+`full-stack-serving` project under the same license.
