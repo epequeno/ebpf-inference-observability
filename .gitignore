@@ -1,0 +1,12 @@
+# Host reports are committed; nothing here should be
+models/
+*.gguf
+*.safetensors
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.o
+*.bpf.o
+.env
+.DS_Store
