@@ -1,72 +1,85 @@
 # ebpf-inference-observability
 
-**Research question:** can eBPF-based *external* observation — network hooks, scheduler
-tracepoints, and CUDA API uprobes — reveal the internal mechanics of LLM inference servers
-(batching, prefill/decode asymmetry, KV-cache memory pressure) **without modifying or
-instrumenting the server**?
+**Can eBPF-based *external* observation — network hooks, scheduler tracepoints, CUDA API
+uprobes — reveal the internal mechanics of LLM inference servers without modifying or
+instrumenting the server?**
 
-The project doubles as a structured path to learning both eBPF and inference-serving
-architecture.
+The mechanics in question: continuous batching, prefill/decode asymmetry, KV-cache memory
+pressure, CUDA graph effects.
 
-**Status: Phase 0 — environment reconnaissance.** No experiments run yet.
+The project is also a structured path to learning both eBPF and inference-serving architecture,
+with each experiment designed to make one architectural claim empirically visible rather than
+asserted.
 
-Design notes live in a private vault (not published here).
+> **Status: Phase 0a — environment reconnaissance. No experiments run.**
+> **Target host: the physical Linux box on the LAN** (it has the GPU; macOS cannot run eBPF).
+> This repo is **private**.
 
 ---
 
-## This repo's job right now
+## Start here
 
-It exists so the target host can be prepared from the Linux box itself. The Mac is for
-authoring; the **Linux box is the target host** — it has the GPU, and eBPF cannot run on macOS.
+| If you are… | Read |
+|---|---|
+| **an agent** picking this up | [`AGENTS.md`](AGENTS.md) first — rules, status, next action |
+| looking for the design | [`docs/design.md`](docs/design.md) — question, four-layer model, five phases |
+| looking for the claims under test | [`docs/hypotheses.md`](docs/hypotheses.md) — H1–H4 with falsification criteria |
+| setting up the machine | [`docs/environment.md`](docs/environment.md) — target host, Phase 0a/0b, GPU policy |
+| wondering what's been learned | [`docs/results-log.md`](docs/results-log.md) — newest first |
+| wanting the background | [`docs/literature.md`](docs/literature.md) |
 
-## Quick start on the target host
+## Next action
+
+Run the host inventory on the target host. It is read-only and installs nothing:
 
 ```bash
-git clone git@github.com:epequeno/ebpf-inference-observability.git
-cd ebpf-inference-observability
-
-# read-only: installs nothing, changes nothing
 sudo ./tools/host-inventory.sh > inventory/report.md
-
 git add inventory/report.md && git commit -m "Add host inventory" && git push
 ```
 
-`sudo` is optional but adds the lock-down, tracefs and `dmesg` checks. Everything else runs
-unprivileged. The script is best-effort and safe on a box you care about: missing commands and
-unreadable files are reported, never fatal.
+`sudo` is optional but adds the lock-down, tracefs and `dmesg` checks. The report ends with a
+**readiness verdict**; three of its answers can invalidate the approach outright (missing BTF,
+kernel lock-down, no NVIDIA GPU for Phase 3), so it runs before any code is written.
 
-## Why an inventory before any code
+## The shape of the work
 
-The design's Phase 0 is one long list of unknowns, and every later phase depends on them:
+An inference server is four systems stacked, each with its own eBPF hooks:
 
-| Question | Why it gates the design |
-|---|---|
-| BTF present? (`/sys/kernel/btf/vmlinux`) | Without it, CO-RE and `bpftrace` do not work at all |
-| Kernel lockdown / secure boot | Can block kprobes outright, regardless of root |
-| Which GPU, how much VRAM? | NVIDIA → Phase 3 works as designed. AMD/Intel → Phase 3 needs rework |
-| `cuLaunchKernel` symbol present in `libcuda.so`? | Phase 3's entire uprobe plan depends on it |
-| Tracepoint counts (sched / net / kmem) | Phases 1, 2 and 4 are sized by what's available |
-| Toolchain state | `bpftrace` / BCC / clang / Go decide which phase can start today |
+| Layer | eBPF hooks | Phase |
+|---|---|---|
+| Network service | `tcp_sendmsg` / `tcp_recvmsg` kprobes | 1 |
+| Scheduler / batcher | `sched` tracepoints, off-CPU profiling | 2 |
+| GPU driver consumer | uprobes on `libcuda.so` (`cuLaunchKernel`, `cuMemAlloc`, …) | 3 |
+| Memory system | `mmap` / `madvise` tracing, `handle_mm_fault`, RSS | 4 |
+
+**The constraint that shapes everything: eBPF cannot run on the GPU.** GPU visibility is
+indirect, via the user-space CUDA API — which turns out to reveal launch rhythm, transfer
+overhead and allocation behaviour.
+
+**Four of the five phases do not need a GPU.** Phase 1 alone meets the project's first
+milestone, because TTFT-vs-ITL *is* the externally observable prefill/decode split.
 
 ## Layout
 
 ```
-tools/host-inventory.sh   # read-only reconnaissance; writes a markdown report
-inventory/                # collected host reports (committed)
+AGENTS.md                 # instructions for an agent working in this repo
+README.md                 # this file
+docs/
+  design.md               # research question, mental model, phases, non-goals
+  hypotheses.md           # H1-H4: predictions, falsification criteria, confounds
+  environment.md          # target host, Phase 0a/0b, GPU-vs-CPU, privileges
+  literature.md           # references
+  results-log.md          # chronological log, newest first
+  provenance.md           # what came from the private vault vs. what was added later
+tools/
+  host-inventory.sh       # read-only host reconnaissance -> markdown report
+inventory/                # collected host reports
 ```
 
-## Where the design lives
+## Why this is worth doing
 
-The five-phase experiment plan, hypotheses H1–H4, and the four-layer mental model are in the
-private vault. Summary of the phases:
-
-| Phase | Claim made visible | Needs GPU? |
-|---|---|---|
-| 1 — request lifecycle (network) | TTFT and ITL are externally measurable; streaming has a distinct network signature | no |
-| 2 — scheduler / CPU | Orchestration overhead and wake patterns are observable | no |
-| 3 — GPU via CUDA uprobes | Prefill and decode have distinct kernel-launch signatures | **yes** |
-| 4 — memory system | Loading strategy and KV-cache pressure show up in page faults | no |
-| 5 — multi-tenant (stretch) | Per-tenant attribution is an eBPF-native problem | optional |
-
-Four of five phases do not need a GPU. Phase 1 alone is enough to meet the project's first
-milestone, because TTFT-vs-ITL **is** the externally-observable prefill/decode split.
+Most eBPF material targets SRE-style host observability; most inference-serving material is
+papers and benchmarks. The bridge — *"here is what continuous batching looks like in
+`cuLaunchKernel` inter-arrival times, measured from outside the process"* — is the artifact this
+project is trying to produce. See `docs/design.md` for how it differs from nsys/ncu, DCGM,
+OpenTelemetry and py-spy.
