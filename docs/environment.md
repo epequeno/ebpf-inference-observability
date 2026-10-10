@@ -109,3 +109,8 @@ Rules for work on this box:
    compile (kernel-7.0 header static_assert), and `offcputime-bpfcc` traces but hangs
    in report generation at Phase-2 event rates — bpftrace substitutes were used for
    Phase 2; see `docs/results-log.md`.
+
+6. **Which llama.cpp binary is the server?** Two builds exist (2026-10-10): `build/` =
+   CUDA graphs ON (the 0.6.0-dev shipping default) and `build-off/` =
+   `GGML_CUDA_GRAPHS=OFF` (author-approved H1 confound control). The running server is
+   the graphs-OFF binary; results-log entries record which binary each measurement used.

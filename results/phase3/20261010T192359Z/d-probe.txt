@@ -1,0 +1,20 @@
+Attached 247 probes
+attached - run the load; SIGINT prints the maps
+
+
+@gap_fast:
+[0, 20)             3394 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+
+@gap_slow:
+[2, 52)                1 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so:cuMemcpyDtoHAsync_v2]: 1920
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.595.99.02:cuMemcpyDtoHAsync_v2]: 1920
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemcpyDtoHAsync_v2]: 1920
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemcpyHtoDAsync_v2]: 9216
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.595.99.02:cuMemcpyHtoDAsync_v2]: 9216
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so:cuMemcpyHtoDAsync_v2]: 9216
+@n: 3396
+@per10ms[2785700]: 543
+@per10ms[2785699]: 2853
+@prev: 27857000325619

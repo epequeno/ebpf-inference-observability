@@ -16,6 +16,91 @@ Rules:
 
 ---
 
+## 2026-10-10 — Phase 3 (CUDA uprobes): llama.cpp ships CUDA graphs; H1 refuted at the API level, H4 confirmed
+
+- **Context:** same host; kernel 7.0.0-38-generic, driver 595.99.02 (CUDA 13.2), bpftrace 0.25.0.
+  Two llama.cpp binaries this phase, both 0.6.0-dev (clang 21.1.8): `build/` = CUDA graphs
+  ON (the shipping configuration), `build-off/` = `GGML_CUDA_GRAPHS=OFF` (author-approved
+  2026-10-10; 2.2 min build; flag verified in CMakeCache). Server swapped to build-off
+  mid-phase (pid 56122); `meta.txt` records the swap and which binary each run measured.
+  Page caches not dropped. Artifacts: `results/phase3/20261010T192359Z/`.
+- **GPU-tenant surprise:** Phase 3 opened blocked — llama.cpp OOM'd at model load because
+  the sibling repo's `l0-vllm` container (full-stack-serving; vllm-openai:v0.23.0,
+  `--gpu-memory-utilization 0.90`) held 14.6 of 16 GiB. It was idle (no established
+  connections) and was stopped via that repo's own `make down` target (restore:
+  `make -C ~/code/full-stack-serving up`). The design's "other tenants" confound is real
+  on this box; Phase 3 meta records `gpu_tenants: none` for all runs.
+- **Probes:** `tools/phase3-launches.bt` (cuLaunchKernel*/cuGraphLaunch*/capture/memcpy
+  census, 96 uprobes on the stable soname `libcuda.so.1`) and `tools/phase3-allocs.bt`
+  (cuMemAlloc*/Free census). Two tooling lessons, logged in the probe headers: (1) globbing
+  bare `libcuda.so*` matches the `.so`/`.so.1`/`.so.595.99.02` aliases as separate paths —
+  bpftrace attaches per path and TRIPLE-counts every event (Run D's raw file `d-probe.txt`
+  has 3× counts; every later run is clean); (2) `lhist()` with an inline map-lookup
+  expression silently records nothing — compute into a `$d` variable first.
+- **FINDING — llama.cpp 0.6.0-dev runs CUDA graphs by default.** `GGML_CUDA_GRAPHS`
+  defaults ON; there is no runtime switch. Externally visible without any server
+  knowledge (graphs-ON binary): an idle server makes ZERO CUDA API calls (15 s baseline);
+  the first inference of each new shape produces ONE capture event (cuStreamEndCapture=1,
+  cuGraphInstantiate=1) containing a 1,132-launch cuLaunchKernel burst (all gaps < 20 µs
+  — the whole kernel DAG submitted once); every subsequent step is ONE cuGraphLaunch with
+  ZERO cuGraphExecKernelNodeSetParams — kernel arguments are baked at capture, per-step
+  state lives in device memory. Identical-shape steps replay: 16 × 600-token prompts →
+  1 prefill capture + 15 replays; the 8×64 run shows 511 replays = 504 decode steps + 7
+  prefill replays + 1 capture-run — the arithmetic closes exactly.
+- **H1 test (graphs OFF — the pre-registered confound control), prefill vs decode at C=1:**
+  - decode: 579,584 cuLaunchKernel calls / 1,024 steps = **566 launches per step**
+    (~130 k/s), 99.86% of inter-launch gaps < 20 µs; step cadence visible as 360 gaps in
+    the 2–52 ms bucket.
+  - prefill (600-token prompt, max_tokens 2): 18,112 / 16 requests = **1,132 per request =
+    exactly 2 steps × 566** — the same burst size and rhythm as decode; a 600-token
+    prefill lasts ~4 ms on this GPU (TTFT p50 4.5 ms), comparable to a 3.2 ms decode step.
+  - **H1 is REFUTED per its own falsification criterion 1:** the prefill and decode
+    inter-arrival distributions overlap almost completely (both ~99.9% < 20 µs; medians in
+    the same bucket; the between-phase difference is smaller than the within-phase
+    spread). The prefill/decode asymmetry lives in kernel SIZE and DURATION, which the
+    CUDA API boundary does not expose — and on this GPU even the phase-duration asymmetry
+    has collapsed (prefill ≈ decode-step time). Scope note, recorded plainly: the criteria
+    were pre-registered for this server+GPU; a slower GPU or larger model may re-separate
+    the phases. As registered, H1 fails.
+  - Constructive residue (logged as findings, not a rescue): the graph DAG size
+    (566 kernels/step), the step cadence, and batching's launch amortization are all
+    cleanly visible from outside (below).
+- **H4 test (launch gaps, bursty vs continuous, graphs OFF): CONFIRMED.**
+  - Bursty single-stream (8 requests, 1 s arrival spacing): launches occupy only **23% of
+    10 ms buckets**; 7 idle windows appear in the inter-launch gap distribution at
+    752–802 ms — the 1 s arrival spacing minus the ~230 ms request duration. Idle gaps
+    track arrivals.
+  - Continuous (C=16, 256 req, 64 tok): **100% of buckets active, zero idle windows**;
+    3,959 step-cadence gaps at 2–52 ms (ITL 4.2 ms).
+  - Falsification checks: gaps change measurably between regimes (23% → 0% idle); they
+    track arrival spacing and step cadence, not any fixed tick; llama.cpp's 4-slot
+    batching IS continuous, and the bursty single-stream case is the no-batch baseline in
+    the sense H4 needs (nothing exists to batch between arrivals). Prediction met on both
+    sides.
+- **Batching's launch signature (Phase 3.1's core fact, externally):** 566 launches per
+  1-slot decode step → ~800 per 4-slot batched step → **566 launches/token at C=1
+  amortizes to ~204/token at C=16 (2.8×)**. Continuous batching's efficiency is visible in
+  API-level launch counts alone.
+- **3.4 graphs ON vs OFF (measured):** API launches per decode step: 1 (cuGraphLaunch)
+  vs 566 (cuLaunchKernel) — **566× collapse**. ITL at C=1: 2.8 ms (ON) vs 3.2 ms (OFF),
+  ~12% faster with graphs; at C=16: 3.7 ms (ON, Phase 2 cross-session) vs 4.2 ms (OFF).
+  CUDA graphs both collapse the observable launch stream and speed small-batch decode —
+  exactly the confound the design flagged for H1, now quantified on llama.cpp.
+- **3.2 memcpy census (consistent across both binaries):** ~9 cuMemcpyHtoDAsync_v2 + ~1.9
+  cuMemcpyDtoHAsync_v2 per step; sampling/logit traffic rides outside any graph.
+- **3.3 allocation watch (graphs-OFF server startup):** 3 cuMemAlloc_v2 calls totaling
+  1,166,241,408 B (~1.09 GiB): 934.7 MiB (model weights — matching the OOM message from
+  the vLLM-contention incident), ~118 MiB and ~68 MiB (compute/KV buffers); 1 cuMemFree
+  during startup. The "KV cache grabs its headroom" moment is visible as discrete
+  cudaMallocs from outside.
+- **Probe overhead:** at 130–190k uprobe events/s, attached vs control: ITL +0.0% in
+  every run; TTFT +2.1% / −2.2% (run noise). The launch-submitting thread has enough
+  futex slack (Phase 2's finding) to absorb the per-launch uprobe cost entirely.
+- **Verdicts recorded:** H1 refuted (API level, this configuration); H4 confirmed.
+  **Next:** Phase 4 (memory/page faults — H3, the last untested hypothesis) or vLLM
+  introduction (the graphs comparison now has its llama.cpp leg; vLLM brings
+  `--enforce-eager`).
+
 ## 2026-10-10 — Phase 2 (scheduler/CPU side): llama.cpp is a futex metronome; GPU waits invisible; BCC casualties on kernel 7.0
 
 - **Context:** server unchanged (pid 8945, flags as 2026-10-09; page caches not dropped;

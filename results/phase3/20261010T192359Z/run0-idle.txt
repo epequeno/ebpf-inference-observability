@@ -1,0 +1,4 @@
+Attached 247 probes
+attached - run the load; SIGINT prints the maps
+
+

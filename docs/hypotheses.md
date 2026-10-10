@@ -166,7 +166,7 @@ that is a refutation of H2, not a promising direction.
 
 | Hypothesis | Status | Blocked on |
 |---|---|---|
-| H1 | not started | Phase 3 start (Phase 0a + 0b complete) |
+| H1 | **refuted** (2026-10-10, Phase 3.1, graphs-OFF build): prefill/decode inter-arrival distributions overlap ~99.9% < 20 µs — the asymmetry lives in kernel size/duration, invisible at the API boundary (566 launches/step in both phases; prefill ≈ decode-step duration on this GPU). Constructive: DAG size, step cadence, batching amortization all externally visible | re-test only on a slower GPU / larger model where phase durations separate |
 | H2 | **confirmed** (2026-10-10, sweep `20261010T122431Z`): TTFB same-interval median err 5.9/4.9/0.0/0.0% at C=1/4/16/64 (r≥0.91), ITL framing-symmetric 0.1% at every C (r≥0.999); probe cost within run noise | — |
 | H3 | not started | Phase 4 start (Phase 0a complete) |
-| H4 | not started | Phase 3.1 working |
+| H4 | **confirmed** (2026-10-10, Phase 3.5, graphs OFF): bursty arrivals → launch-idle windows tracking the 1 s spacing (7 gaps at 752–802 ms; 23% of buckets active); continuous C=16 → 100% active, zero idle windows. Gaps track arrivals and step cadence, no fixed tick | — |

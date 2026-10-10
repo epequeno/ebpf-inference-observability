@@ -40,6 +40,7 @@ def parse_args():
     p.add_argument("--prompt", default="Explain how eBPF works, briefly.")
     p.add_argument("--max-tokens", type=int, default=64)
     p.add_argument("--timeout", type=float, default=120.0, help="per-request wall-clock timeout (s)")
+    p.add_argument("--gap", type=float, default=0.0, help="if >0, request i starts i*gap seconds after t0 (bursty arrival pacing; H4)")
     p.add_argument("--out", required=True, help="JSONL file: one ground-truth record per request plus a summary")
     return p.parse_args()
 
@@ -148,6 +149,10 @@ async def run(args):
     results = []
 
     async def worker(i):
+        if args.gap > 0:
+            # arrival pacing: request i starts args.gap after request i-1, exact
+            # spacing regardless of how long requests take (H4 bursty pattern)
+            await asyncio.sleep(i * args.gap)
         async with sem:
             results.append(await one_request(args, i))
 

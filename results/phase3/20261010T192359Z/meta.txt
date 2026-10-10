@@ -1,0 +1,18 @@
+date_utc:           2026-10-10T19:24:05Z
+kernel:             7.0.0-38-generic
+bpftrace:           bpftrace v0.25.0
+server_pid:         46061
+server_cmd:         ./build/bin/llama-server --host 127.0.0.1 --port 8080 -m /home/steven/models/qwen2.5-1.5b-instruct-q4_k_m.gguf -ngl 99 -c 4096 -np 4 
+gpu:                NVIDIA GeForce RTX 4070 Ti SUPER, 595.99.02, 1806 MiB
+libcuda:            /usr/lib/x86_64-linux-gnu/libcuda.so.595.99.02
+git:                ac8c8af
+probe:              tools/phase3-launches.bt (247 uprobes: cuLaunchKernel* + cuMemcpy*)
+runs:               0=idle  D=decode C=1/16req/64tok  P=prefill long-prompt C=1/16req/max2tok  B16=C16/256req/64tok  bursty=C1/8req/gap1s
+page_caches_dropped: no
+cuda_graphs:        N/A (llama.cpp has no CUDA-graph mode; H1 confound absent for this server)
+gpu_tenants:        none other (vLLM l0-vllm container from full-stack-serving was stopped 2026-10-10 ~14:20 local via make down; 479 MiB desktop overhead only)
+server_swap_2026-10-10T19:48Z: graphs-ON binary (build/, pid 46061) stopped;
+  runs 0/D/d2/P/off-check(*) measured the ON binary. From alloc-watch onward the
+  server is build-off/ (pid 56122), GGML_CUDA_GRAPHS=OFF, same flags/cmdline.
+  alloc-watch + off-* runs measured the OFF binary. Author approved the OFF
+  build (H1 confound control; both binaries kept).

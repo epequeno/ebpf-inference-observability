@@ -1,0 +1,36 @@
+#!/usr/bin/env bpftrace
+/*
+ * Phase 3 probe (docs/design.md §Phase 3.3): allocation watch — cuMemAlloc* /
+ * cuMemFree* census during server startup, to watch the model weights and the
+ * KV cache grab their headroom. Attach BEFORE the server starts; the model
+ * load is the event of interest. All aggregation in-kernel.
+ *
+ * Usage:  sudo bpftrace tools/phase3-allocs.bt
+ *
+ * Maps at exit (SIGINT):
+ *   @allocs[func]     call counts per allocation entry point
+ *   @alloc_bytes      total bytes requested (sum of arg1 across cuMemAlloc*)
+ *   @frees            total cuMemFree* calls
+ *   @size_mb          histogram of requested sizes, MB buckets 0-2000
+ *                     (weights ~0.9 GB observed as one cudaMalloc; KV cache
+ *                     headroom shows as its own cluster)
+ *
+ * libcuda.so.1 = stable soname symlink (see tools/phase3-launches.bt for why
+ * the bare glob triple-counts).
+ */
+
+BEGIN { printf("attached - start the server; SIGINT prints the maps\n"); }
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemAlloc*
+/comm == "llama-server"/
+{
+	@allocs[probe] = count();
+	@alloc_bytes = sum((uint64)arg1);
+	@size_mb = lhist((uint64)arg1 / 1048576, 0, 2000, 10);
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemFree*
+/comm == "llama-server"/
+{
+	@frees = count();
+}

@@ -1,0 +1,35 @@
+Attached 96 probes
+attached - run the load; SIGINT prints the maps
+
+
+@captures: 1
+@gap_fast:
+[0, 20)             1130 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+
+@gap_slow:
+[2, 52)                1 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+
+@gprev: 28733944971408
+@graph_gap_slow:
+[2, 52)               30 |@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@|
+
+@graph_launch: 31
+@graph_per10ms[2873385]: 2
+@graph_per10ms[2873392]: 2
+@graph_per10ms[2873383]: 2
+@graph_per10ms[2873390]: 2
+@graph_per10ms[2873394]: 2
+@graph_per10ms[2873387]: 3
+@graph_per10ms[2873388]: 3
+@graph_per10ms[2873386]: 3
+@graph_per10ms[2873384]: 3
+@graph_per10ms[2873389]: 3
+@graph_per10ms[2873391]: 3
+@graph_per10ms[2873393]: 3
+@instantiate: 1
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemcpyDtoHAsync_v2]: 32
+@memcpy[uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemcpyHtoDAsync_v2]: 288
+@n: 1132
+@per10ms[2873383]: 566
+@per10ms[2873382]: 566
+@prev: 28733832270723

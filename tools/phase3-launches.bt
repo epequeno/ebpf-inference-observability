@@ -1,0 +1,90 @@
+#!/usr/bin/env bpftrace
+/*
+ * Phase 3 probe (docs/design.md §Phase 3.1/3.2, hypotheses H1/H4): CUDA API
+ * visibility from outside the process — uprobes on the driver's entry points
+ * in libcuda.so. All aggregation stays in-kernel; nothing streams per-event.
+ *
+ * Usage:  sudo bpftrace tools/phase3-launches.bt
+ *
+ * Attach target: the probe spec uses the stable soname symlink libcuda.so.1,
+ * which resolves to the driver's versioned file — one probe set, surviving
+ * driver upgrades. Bare `libcuda.so*` matches the .so/.so.1/.so.595.99.02
+ * aliases of the same inode as separate paths and bpftrace attaches per
+ * path, triple-counting every event (found the hard way, 2026-10-10).
+ *
+ * CUDA graphs (llama.cpp 0.6.0-dev, GGML_CUDA_GRAPHS default ON): decode/prefill
+ * steps replay a captured graph via cuGraphLaunch, so cuLaunchKernel* only
+ * fires during capture. The graph-API counters below expose the replay side:
+ *   @captures         cuStreamEndCapture*  — graph capture events
+ *   @instantiate      cuGraphInstantiate*  — executable-graph creation
+ *   @graph_update     cuGraphExecKernelNodeSetParams* — per-step param updates
+ *   @graph_launch     cuGraphLaunch*       — one per replayed step
+ *   @graph_per10ms    replay time series (joins to loadgen abs_t0_s)
+ *   @graph_gap_fast/slow  inter-STEP gaps (the H4 signal with graphs on)
+ *
+ * Other maps at exit:
+ *   @n                 total cuLaunchKernel* calls (capture-time kernels with
+ *                      graphs on; the raw per-kernel count with graphs off)
+ *   @per10ms[bucket]   launches per absolute 10 ms bucket since boot
+ *   @gap_fast/slow     inter-LAUNCH gaps: <2 ms in 20 us buckets; 2 ms-2 s in
+ *                      50 ms buckets (idle windows — H4)
+ *   @memcpy[func]      host<->device transfer census by symbol (3.2)
+ */
+
+BEGIN { printf("attached - run the load; SIGINT prints the maps\n"); }
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuLaunchKernel*
+/comm == "llama-server"/
+{
+	@n = count();
+	@per10ms[nsecs / 10000000] = count();
+	if (@prev) {
+		$d = (nsecs - @prev) / 1000;          // us
+		if ($d < 2000) {
+			@gap_fast = lhist($d, 0, 2000, 20);
+		} else {
+			@gap_slow = lhist($d / 1000, 2, 2000, 50);   // ms
+		}
+	}
+	@prev = nsecs;
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuGraphLaunch*
+/comm == "llama-server"/
+{
+	@graph_launch = count();
+	@graph_per10ms[nsecs / 10000000] = count();
+	if (@gprev) {
+		$d = (nsecs - @gprev) / 1000;        // us
+		if ($d < 2000) {
+			@graph_gap_fast = lhist($d, 0, 2000, 20);
+		} else {
+			@graph_gap_slow = lhist($d / 1000, 2, 2000, 50);   // ms
+		}
+	}
+	@gprev = nsecs;
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuStreamEndCapture*
+/comm == "llama-server"/
+{
+	@captures = count();
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuGraphInstantiate*
+/comm == "llama-server"/
+{
+	@instantiate = count();
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuGraphExecKernelNodeSetParams*
+/comm == "llama-server"/
+{
+	@graph_update = count();
+}
+
+uprobe:/usr/lib/x86_64-linux-gnu/libcuda.so.1:cuMemcpy*
+/comm == "llama-server"/
+{
+	@memcpy[probe] = count();
+}

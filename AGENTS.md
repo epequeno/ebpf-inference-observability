@@ -38,10 +38,13 @@ which were added later — read it if you need to know how stable a particular c
 GPU, loadgen ground truth, probe attach verified). The committed `inventory/report.md` was
 regenerated on 2026-10-10 — the old copy predated the toolchain install and the script fixes.
 
-llama.cpp 0.6.0-dev is built with CUDA and serving Qwen2.5-1.5B-Q4_K_M on the target host;
-`tools/loadgen.py` produces client-side TTFT/ITL ground truth. The server runs as a session
-service on the target host (restart with the flags in the 2026-10-09 results-log entry;
-readiness regex `llama_server: listening`).
+llama.cpp 0.6.0-dev is built twice, both with CUDA: `build/` (CUDA graphs ON — the
+shipping default of 0.6.0-dev) and `build-off/` (`GGML_CUDA_GRAPHS=OFF`, the
+author-approved H1 confound control). The **running server is the graphs-OFF binary**
+(`build-off/bin/llama-server`, pid 56122 since 2026-10-10T19:48Z; restart with the flags
+in the 2026-10-09 results-log entry; readiness regex `llama_server: listening`).
+`tools/loadgen.py` produces client-side TTFT/ITL ground truth (plus `--gap` arrival
+pacing for bursty-load experiments).
 
 The next milestone is **Phase 1** (`docs/design.md`): per-connection TTFT/ITL from
 `tcp_sendmsg` timestamps, validated against that ground truth, with the probe's own
@@ -54,9 +57,16 @@ within run noise. **Phase 2 has also run** (2026-10-10,
 (99.6% of sleeps in `futex_do_wait`, zero driver wait sites, ~60 futex syscalls per
 token) with no visible latency cost at this load; BCC on kernel 7.0 has two
 casualties (`profile-bpfcc` compile failure, `offcputime-bpfcc` report hang) —
-bpftrace substitutes were used. Next: Phase 3 (CUDA uprobes; `cuLaunchKernel`
-resolvable per inventory §4) or Phase 4 (memory/page faults). Runbook: top of
-`docs/results-log.md`.
+bpftrace substitutes were used. **Phase 3 has also run** (2026-10-10,
+`results/phase3/20261010T192359Z/`): llama.cpp ships CUDA graphs ON by default —
+measured both ways (ON: 1 capture of 1,132 kernels then 1 cuGraphLaunch per step;
+OFF: 566 cuLaunchKernel per step); **H1 refuted** at the API level (prefill/decode
+gap distributions overlap — the asymmetry lives in kernel size, invisible at the
+boundary), **H4 confirmed** (bursty arrivals → launch-idle windows tracking the
+spacing; continuous batching → 100% activity); graphs collapse the API launch stream
+566× and are worth ~12% ITL. Probe cost +0.0% ITL at 190k uprobe events/s.
+Next: Phase 4 (memory/page faults — H3, the last untested hypothesis) or vLLM
+introduction. Runbook: top of `docs/results-log.md`.
 
 ## Rules
 
