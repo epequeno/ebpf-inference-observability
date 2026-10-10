@@ -1,0 +1,79 @@
+#!/usr/bin/env bpftrace
+/*
+ * Phase 2 probe (docs/design.md §Phase 2): thread-wake characterisation of
+ * the server under sustained decode, plus a sync census (futex ops + glibc
+ * condition waits). Aggregation stays in-kernel; user space gets the maps at
+ * SIGINT.
+ *
+ * Usage:  sudo bpftrace tools/phase2-threads.bt <server-pid>
+ *
+ * Facts that shape this probe (saturn, 2026-10-10):
+ *   - all 45 application threads share comm "llama-server"; NVIDIA's two
+ *     helper threads ("cuda-*") are excluded by the comm filter
+ *   - llama-server is stripped of function symbols, so design.md §Phase 2.3
+ *     ("uprobes on server functions") is impossible on this binary — recorded
+ *     as a limit of external observation. The uprobe target is glibc instead
+ *     (pthread_cond_wait / pthread_cond_timedwait); the server is untouched.
+ *
+ * Maps at exit:
+ *   @wakeups[comm]   who wakes server threads (waker's comm at sched_wakeup)
+ *   @woken[tid]      wakeups per server TID
+ *   @switches[tid]   switch-outs per server TID
+ *   @oncpu_us        hist of server-thread on-cpu run slices
+ *   @offcpu_us       hist of off-cpu durations (switch-out -> switch-in)
+ *   @futex_op[op]    futex syscall op census from the server (op & 0x7f)
+ *   @cond_wait       pthread_cond_wait calls (glibc uprobe)
+ *   @cond_timedwait  pthread_cond_timedwait calls (glibc uprobe)
+ *
+ * bpftrace 0.25: lhist(v, min, max, step); delete() prints a cosmetic
+ * "Return value discarded" warning in both spellings — ignore.
+ */
+
+BEGIN { printf("attached - run the load; SIGINT prints the maps\n"); }
+
+// waker's context at sched_wakeup: who woke a server thread
+tracepoint:sched:sched_wakeup
+/args->comm == "llama-server"/
+{
+	@wakeups[comm] = count();
+	@woken[args->pid] = count();
+}
+
+tracepoint:sched:sched_switch
+{
+	if (args->prev_comm == "llama-server") {
+		if (@run_start[args->prev_pid]) {
+			@oncpu_us = lhist((nsecs - @run_start[args->prev_pid]) / 1000, 0, 50000, 250);
+			delete(@run_start[args->prev_pid]);
+		}
+		@sleep_start[args->prev_pid] = nsecs;
+		@switches[args->prev_pid] = count();
+	}
+	if (args->next_comm == "llama-server") {
+		if (@sleep_start[args->next_pid]) {
+			@offcpu_us = lhist((nsecs - @sleep_start[args->next_pid]) / 1000, 0, 1000000, 10000);
+			delete(@sleep_start[args->next_pid]);
+		}
+		@run_start[args->next_pid] = nsecs;
+	}
+}
+
+// sync census: futex ops from the server process (pid builtin = tgid)
+tracepoint:syscalls:sys_enter_futex
+/pid == $1/
+{
+	@futex_op[args->op & 127] = count();
+}
+
+// sync census: glibc condition-variable waits
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_wait
+/pid == $1/
+{
+	@cond_wait = count();
+}
+
+uprobe:/lib/x86_64-linux-gnu/libc.so.6:pthread_cond_timedwait
+/pid == $1/
+{
+	@cond_timedwait = count();
+}

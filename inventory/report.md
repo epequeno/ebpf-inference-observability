@@ -1,6 +1,6 @@
 # Host inventory — saturn
 
-Collected: 2026-10-10T12:07:04Z  ·  via `/home/steven/code/ebpf-inference-observability/tools/host-inventory.sh`  ·  root: yes
+Collected: 2026-10-10T13:04:15Z  ·  via `/home/steven/code/ebpf-inference-observability/tools/host-inventory.sh`  ·  root: yes
 
 ## 1. OS and kernel
 
@@ -10,7 +10,7 @@ Collected: 2026-10-10T12:07:04Z  ·  via `/home/steven/code/ebpf-inference-obser
 | uname -r | 7.0.0-38-generic |
 | uname -m | x86_64 |
 | distro | Ubuntu 26.04.1 LTS |
-| uptime | up 26 minutes |
+| uptime | up 1 hour, 23 minutes |
 | virtualisation | none |
 | secure boot | SecureBoot enabled |
 > Bare metal or a VM matters: nested virtualisation can hide kernel features. Secure boot + kernel lockdown can block kprobes entirely.
@@ -20,7 +20,7 @@ Collected: 2026-10-10T12:07:04Z  ·  via `/home/steven/code/ebpf-inference-obser
 | field | value |
 |---|---|
 | BTF /sys/kernel/btf/vmlinux | yes (7067009 bytes) |
-| /proc/kallsyms symbols | 360187 |
+| /proc/kallsyms symbols | 360192 |
 | tcp_sendmsg in kallsyms | 1 |
 | tcp_recvmsg in kallsyms | 1 |
 | tracefs mounted | yes |
@@ -54,7 +54,7 @@ CONFIG_DEBUG_INFO_BTF=y
 |---|---|
 | bpftrace | bpftrace v0.25.0 |
 | bpftool | bpftool v7.7.0 |
-| bcc-tools | 0 tools in /usr/share/bcc/tools |
+| bcc-tools | 132 tools (/usr/share/bcc/tools and/or /usr/sbin/*-bpfcc) |
 | clang | Ubuntu clang version 21.1.8 (6ubuntu1) |
 | llvm-strip | absent |
 | libbpf | 1 |
@@ -73,7 +73,7 @@ CONFIG_DEBUG_INFO_BTF=y
 | vendor | NVIDIA (nvidia-smi present) |
 
 ```
-Sat Oct 10 07:07:05 2026       
+Sat Oct 10 08:04:15 2026       
 +-----------------------------------------------------------------------------------------+
 | NVIDIA-SMI 595.99.02              Driver Version: 595.99.02      CUDA Version: 13.2     |
 +-----------------------------------------+------------------------+----------------------+
@@ -82,7 +82,7 @@ Sat Oct 10 07:07:05 2026
 |                                         |                        |               MIG M. |
 |=========================================+========================+======================|
 |   0  NVIDIA GeForce RTX 4070 ...    Off |   00000000:01:00.0  On |                  N/A |
-|  0%   36C    P2             41W /  285W |    1561MiB /  16376MiB |      2%      Default |
+|  0%   38C    P8             15W /  285W |    1908MiB /  16376MiB |     23%      Default |
 |                                         |                        |                  N/A |
 +-----------------------------------------+------------------------+----------------------+
 
@@ -93,7 +93,7 @@ Sat Oct 10 07:07:05 2026
 Full query (name, memory, compute capability, driver, CUDA):
 ```
 index, name, memory.total [MiB], memory.used [MiB], compute_cap, driver_version, vbios_version
-0, NVIDIA GeForce RTX 4070 Ti SUPER, 16376 MiB, 1561 MiB, 8.9, 595.99.02, 95.03.45.80.07
+0, NVIDIA GeForce RTX 4070 Ti SUPER, 16376 MiB, 1908 MiB, 8.9, 595.99.02, 95.03.45.80.07
 ```
 | field | value |
 |---|---|
@@ -159,7 +159,7 @@ All graphics devices (lspci):
 | CPU phys | 32 |
 | NUMA nodes | 1 |
 | RAM total | 30Gi |
-| RAM avail | 27Gi |
+| RAM avail | 20Gi |
 | swap | 8.0Gi |
 | hugepages | HugePages_Total:       0 |
 | free in $HOME | 1670 GiB |

@@ -49,8 +49,14 @@ overhead measured (attached vs detached) before any number is quoted. **The swee
 run** (2026-10-10, `results/phase1/20261010T122431Z/`): ITL confirmed at every
 concurrency (≤0.2% median error, r≥0.999) and TTFB confirmed at every C under the
 author's same-interval ruling (≤5.9%, r≥0.91) — **H2 is confirmed**; probe cost
-within run noise. Next: Phase 2 (needs `bcc-tools` — install is an author call)
-or Phase 3 (CUDA uprobes). Runbook: top of `docs/results-log.md`.
+within run noise. **Phase 2 has also run** (2026-10-10,
+`results/phase2/20261010T123353Z/`): llama.cpp's CPU side is a futex metronome
+(99.6% of sleeps in `futex_do_wait`, zero driver wait sites, ~60 futex syscalls per
+token) with no visible latency cost at this load; BCC on kernel 7.0 has two
+casualties (`profile-bpfcc` compile failure, `offcputime-bpfcc` report hang) —
+bpftrace substitutes were used. Next: Phase 3 (CUDA uprobes; `cuLaunchKernel`
+resolvable per inventory §4) or Phase 4 (memory/page faults). Runbook: top of
+`docs/results-log.md`.
 
 ## Rules
 

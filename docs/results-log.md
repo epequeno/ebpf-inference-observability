@@ -16,6 +16,67 @@ Rules:
 
 ---
 
+## 2026-10-10 — Phase 2 (scheduler/CPU side): llama.cpp is a futex metronome; GPU waits invisible; BCC casualties on kernel 7.0
+
+- **Context:** server unchanged (pid 8945, flags as 2026-10-09; page caches not dropped;
+  CUDA graphs N/A). Load for every experiment: loadgen C=16, 256 requests, 64 tokens
+  (~16 s sustained decode, ~1k tokens/s, ITL mean 3.7 ms, TTFT p50 ~0.74 s), plus a
+  detached control. Artifacts: `results/phase2/20261010T123353Z/`.
+- **bcc-tools authorization resolved as "already present":** `bpfcc-tools` 0.35.0 was
+  installed all along; the inventory's check only looked at `/usr/share/bcc/tools`
+  (upstream layout) and missed Ubuntu's `/usr/sbin/*-bpfcc` packaging (132 tools).
+  Detection fixed in `tools/host-inventory.sh`; `docs/environment.md` corrected.
+- **BCC on kernel 7.0.0-38 — two findings:**
+  1. `profile-bpfcc` does not compile: kernel-7.0 `include/linux/fs.h` static_assert on
+     `sizeof(struct filename)` defeats BCC 0.35's embedded clang. Substituted: bpftrace
+     `profile:hz:49`.
+  2. `offcputime-bpfcc` attaches and traces, but its report generation hangs
+     indefinitely post-SIGINT at Phase-2 event volumes (three attempts: full stacks,
+     `-K`, `-K` + 4 s load — all reports lost; idle-scale traces print instantly, as
+     in the Phase 1 session's first smoke). Substituted: bpftrace block-site census.
+     The design's Phase 2.2 assumption (BCC offcputime delivers the off-CPU report)
+     does not hold on this box; CO-RE escalation for off-CPU attribution is now
+     scheduled earlier than the design assumed.
+- **E1 — thread census** (`tools/phase2-threads.bt`, in-kernel aggregation): 47 threads,
+  45 with comm `llama-server` (NVIDIA's two `cuda-*` helpers excluded by the filter).
+  During decode ~15 threads run hot (11–13k voluntary context switches each in 16 s,
+  wchan `futex_do_wait` at rest). **Every on-cpu run slice < 250 µs** (370k slices).
+  Off-cpu episodes: 388k under 10 ms plus a thin tail at ~110–265 ms and ~510 ms
+  (≈ queue-wave scale, matching Phase 1's TTFB staircase). Wakeups of server threads:
+  388k — **99.97% issued from `swapper/*`, i.e. interrupt/timer context; 122 from the
+  server itself.**
+- **E3 — sync census:** ~1.03M futex syscalls in the probe window (~60 per token
+  generated if concentrated in the load window): FUTEX_WAKE 470k, FUTEX_WAIT 287k,
+  FUTEX_WAIT_BITSET 277k. Against that, only **122 wakeups were ever delivered from
+  server context — almost every explicit FUTEX_WAKE found an empty wait queue**
+  (waiters released by timer expiry first; hrtimer-sleeper frames inside the futex
+  stacks confirm the waits are timed). glibc `pthread_cond_wait` (uprobe): 27.6k calls
+  ≈ 1.7 per token, ~40x below the raw futex traffic, so most futex use is NOT
+  std::condition_variable (unattributable without server symbols; open question).
+- **E2c — where server threads sleep (396,669 blocks counted):** **99.6% in
+  `futex_do_wait`**, 0.2% poll-with-hrtimer-timeout (idle epoll handlers), single-digit
+  counts for network/tty frames, and **zero NVIDIA-driver wait sites** — during
+  sustained GPU decode, threads never sleep inside the driver. The naive "worker
+  threads wait on the GPU" picture is refuted: the CPU side of this llama.cpp build is
+  a futex metronome.
+- **E4 — on-cpu profile (49 Hz, 3,416 samples):** **97.4% user-mode** (empty kernel
+  stack), ~2% futex syscalls, <1% socket I/O + minor faults. User-mode attribution is
+  impossible on this binary: llama-server ships stripped (8 text symbols, 12 KB symtab,
+  no `.debug_*`), so design §Phase 2.3 ("uprobes on server functions") cannot run;
+  glibc uprobes were used instead. A symbol-rich rebuild would change the binary under
+  observation — author's call, not made.
+- **Deliverable — where orchestration overhead actually lives:** per token generated,
+  the server executes ~60 futex syscalls and ~24 sleep/wake cycles, essentially all in
+  its own threadpool synchronization, with most wake syscalls landing on empty queues;
+  GPU/driver waits are absent from the sleep census. At this load the churn is
+  invisible in user-visible latency (ITL flat 3.7 ms across all runs).
+- **Probe overhead (`overhead.md`):** every single-probe run within ±1.5% of control
+  on ttft p50, ITL flat. One operator error kept as data: two concurrent offcputime
+  instances → wall ≈7x (~110 s) with per-request metrics unchanged — the cost
+  appeared between requests, not within them.
+- **Next:** Phase 3 (CUDA uprobes; `cuLaunchKernel`/`cuMemAlloc*` resolvable per
+  inventory §4) or Phase 4 (memory/page faults).
+
 ## 2026-10-10 — H2 verdict: confirmed (author ruling — same-interval TTFB)
 
 - The author ruled that the pre-registered "probe TTFB vs client TTFB" comparison is

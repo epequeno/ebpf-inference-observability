@@ -103,5 +103,9 @@ Rules for work on this box:
 4. **Disk for a 1–3B model plus builds?** Yes — 1.7 TiB free; model (1.1 GB) is downloaded.
 5. **Toolchain present?** bpftrace/bpftool were; now gcc 15, clang 21, nvcc 12.4, cmake 4.2,
    ninja, git-lfs installed (author-approved) and llama.cpp 0.6.0-dev is built with CUDA.
-   **`bcc-tools` is still absent** (0 tools) — Phase 2 depends on BCC's `offcputime` and
-   `profile`; install it before Phase 2.
+   **`bpfcc-tools` 0.35.0 is present** (132 tools — the old "absent" reading was a
+   detection bug: the inventory only looked at `/usr/share/bcc/tools`, not Ubuntu's
+   `/usr/sbin/*-bpfcc`). On kernel 7.0.0-38 (2026-10-10): `profile-bpfcc` does not
+   compile (kernel-7.0 header static_assert), and `offcputime-bpfcc` traces but hangs
+   in report generation at Phase-2 event rates — bpftrace substitutes were used for
+   Phase 2; see `docs/results-log.md`.

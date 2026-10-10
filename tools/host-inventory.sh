@@ -116,7 +116,7 @@ fi
 sec '3. eBPF toolchain'
 kv 'bpftrace'   "$(bpftrace --version 2>/dev/null || echo '**absent**')"
 kv 'bpftool'    "$(ver bpftool version)"
-kv 'bcc-tools'  "$(ls /usr/share/bcc/tools 2>/dev/null | wc -l) tools in /usr/share/bcc/tools"
+kv 'bcc-tools'  "$( { ls /usr/share/bcc/tools 2>/dev/null; ls /usr/sbin/*-bpfcc 2>/dev/null; } | wc -l) tools (/usr/share/bcc/tools and/or /usr/sbin/*-bpfcc)"
 kv 'clang'      "$(ver clang --version)"
 kv 'llvm-strip' "$(ver llvm-strip --version)"
 kv 'libbpf'     "$(ldconfig -p 2>/dev/null | grep -c libbpf)"
