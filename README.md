@@ -43,6 +43,22 @@ with evidence paths: [`docs/findings.md`](docs/findings.md).
 
 ---
 
+## Can you run this?
+
+**No — and it is worth saying here rather than in a footnote.** The probes attach to a live inference
+server on a physical Linux GPU host with `bpftrace`/bcc and a CUDA-capable card. There is no container
+recipe, because the method *is* external observation of a real workload on real hardware.
+
+What is committed instead is the **record**: per-phase outputs under [`results/`](results/) (`phase1` …
+`phase4`, one timestamped directory per run), the consolidated narrative in
+[`docs/findings.md`](docs/findings.md), the hypotheses with their falsification criteria in
+[`docs/hypotheses.md`](docs/hypotheses.md), and a chronological log in
+[`docs/results-log.md`](docs/results-log.md), newest first.
+
+To repeat any of it you need the host — [`docs/environment.md`](docs/environment.md). The probes are in
+[`tools/`](tools/) (`ttft.bt`, `phase2-threads.bt`, `phase3-launches.bt`, `phase3-allocs.bt`,
+`phase4-faults.bt`), with their sweep and validation scripts beside them.
+
 ## Start here
 
 | If you are… | Read |
