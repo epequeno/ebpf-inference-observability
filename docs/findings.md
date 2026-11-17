@@ -121,7 +121,7 @@ llama.cpp's CPU side is a **futex metronome, not a GPU-waiter**:
 | Phase 4 fault/mmap censuses | `results/phase4/20261010T201207Z/` + `tools/phase4-faults.bt` |
 | vLLM cross-engine runs | `results/vllm/20261010T202713Z/` (relaunch command in its `meta.txt`) |
 | Servers | llama.cpp: `~/code/llama.cpp/build/` (graphs ON) and `build-off/` (OFF), flags in the 2026-10-09 results-log entry; vLLM via the local `vllm/vllm-openai` image + the sibling repo's `hf-cache` volume |
-| Ground truth | `tools/loadgen.py` — `--api llamacpp|openai`, `--gap` arrival pacing, `ttfb_s`/`end_s` fields |
+| Ground truth | `tools/loadgen.py` — `--api llamacpp\|openai`, `--gap` arrival pacing, `ttfb_s`/`end_s` fields |
 
 ## Open threads (author calls)
 
